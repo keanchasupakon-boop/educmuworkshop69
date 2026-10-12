@@ -237,6 +237,27 @@ const FirebaseService = {
   },
 
   /**
+   * ฟังสถานะห้องเรียนและสัญญาณเรียกรวมพล (Recall Signal & Phase Progression)
+   */
+  subscribeRoomState(roomCode, callback) {
+    if (!this.isReady || !this.db) {
+      // If not yet ready, retry when ready
+      setTimeout(() => this.subscribeRoomState(roomCode, callback), 1000);
+      return;
+    }
+
+    const cleanCode = (roomCode || 'EDU69').toUpperCase();
+    return this.db.collection('workshop_rooms').doc(cleanCode)
+      .onSnapshot((doc) => {
+        if (doc.exists && typeof callback === 'function') {
+          callback(doc.data());
+        }
+      }, (err) => {
+        console.warn('Room snapshot warning:', err);
+      });
+  },
+
+  /**
    * Helper สำหรับโหลด script
    */
   loadScripts(urls) {

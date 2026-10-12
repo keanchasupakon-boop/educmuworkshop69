@@ -148,6 +148,10 @@ function initWorkshopBridge() {
   const studentName = urlParams.get('student_name');
   const studentId = urlParams.get('student_id');
   const fromWorkshop = urlParams.get('from') === 'workshop';
+  const roomCode = (urlParams.get('room_code') || localStorage.getItem('cmu_active_room_code') || 'EDU69').toUpperCase();
+
+  window._fromWorkshop = fromWorkshop;
+  window._workshopRoomCode = roomCode;
 
   if (studentName) {
     appState.formData.teacherName = studentName;
@@ -168,7 +172,7 @@ function initWorkshopBridge() {
     try {
       const pulseKey = 'cmu_students_pulse';
       const existing = JSON.parse(localStorage.getItem(pulseKey) || '{}');
-      const isPlanDone = appState.currentView === 'overview' || Boolean(localStorage.getItem(STORAGE_MY_PLAN));
+      const isPlanDone = isPlanCompleteAndSubmitted();
 
       existing[studentId || ('std_' + studentName)] = {
         studentId: studentId || ('std_' + studentName),
@@ -185,7 +189,7 @@ function initWorkshopBridge() {
   sendTelemetryPulse();
   setInterval(sendTelemetryPulse, 2500);
 
-  // Listen for Facilitator Recall Signal
+  // 1. Listen for Facilitator Recall Signal via LocalStorage (Same device)
   window.addEventListener('storage', (e) => {
     if (e.key === 'cmu_workshop_recall' && e.newValue) {
       try {
@@ -196,28 +200,80 @@ function initWorkshopBridge() {
       } catch (err) {}
     }
   });
+
+  // 2. Listen for Facilitator Recall & Phase Progression via Cloud Firestore (Cross-device / Phones)
+  if (window.FirebaseService) {
+    let lastRecallTs = 0;
+    window.FirebaseService.subscribeRoomState(roomCode, (roomData) => {
+      if (!roomData) return;
+      
+      // If facilitator sent recall signal
+      if (roomData.recallSignal && roomData.recallSignal.active) {
+        const ts = roomData.recallSignal.timestamp || 0;
+        if (ts > lastRecallTs) {
+          lastRecallTs = ts;
+          handleFacilitatorRecall();
+        }
+      }
+
+      // If facilitator moved to Phase 4 (Finale / KWL L)
+      if (roomData.appState && roomData.appState.current_phase >= 4) {
+        handleFacilitatorRecall();
+      }
+    });
+  }
+}
+
+function isPlanCompleteAndSubmitted() {
+  return Boolean(
+    appState.currentView === 'overview' || 
+    localStorage.getItem('lesson_plan_submitted_complete') === 'true'
+  );
 }
 
 function handleFacilitatorRecall() {
-  const isPlanDone = appState.currentView === 'overview' || Boolean(localStorage.getItem(STORAGE_MY_PLAN));
+  const isPlanDone = isPlanCompleteAndSubmitted();
+  const room = window._workshopRoomCode || (new URLSearchParams(window.location.search).get('room_code') || 'EDU69').toUpperCase();
+  const returnUrl = `./index.html?room=${encodeURIComponent(room)}`;
+
   if (isPlanDone) {
     if (typeof showToast === 'function') {
-      showToast('📢 พี่วิทยากรเรียกกลับห้องรวมแล้วน้า! กำลังพากลับสู่ Workshop...');
+      showToast('📢 พี่วิทยากรเรียกรวมพลแล้วจ้า! กำลังพาน้องกลับสู่ห้องเรียนหลัก... 🚀', 'success');
     }
     setTimeout(() => {
-      window.location.href = './index.html';
-    }, 1800);
+      window.location.href = returnUrl;
+    }, 1500);
   } else {
+    // If not completed yet: show modal asking if they want to stay to finish
     const modal = document.getElementById('workshopRecallModal');
     if (modal) {
       modal.classList.remove('hidden');
     } else {
-      if (confirm('พี่วิทยากรเริ่มเรียกกลับห้องรวมแล้วน้า! 🏃‍♂️ น้องต้องการบันทึกแผนล่าสุดแล้วกลับห้องรวมทันทีเลยไหม?')) {
-        submitWizardPlan();
-        window.location.href = './index.html';
+      if (confirm('พี่ ๆ กำลังเรียกรวมพลกลับห้องหลักแล้วน้า! 📢 น้องต้องการบันทึกและกลับทันทีไหม?')) {
+        submitWizardPlan(true);
+        window.location.href = returnUrl;
       }
     }
   }
+}
+
+function onStayToWritePlan() {
+  const modal = document.getElementById('workshopRecallModal');
+  if (modal) modal.classList.add('hidden');
+  window.recallPendingReturn = true;
+  showToast('น้องทำต่อให้เสร็จได้เลยนะจ๊ะ ✨ เมื่อกดส่งแผนสมบูรณ์ปึ้ง ระบบจะพากลับห้องเรียนอัตโนมัติ!', 'info');
+}
+
+function onReturnToClassroomNow() {
+  const modal = document.getElementById('workshopRecallModal');
+  if (modal) modal.classList.add('hidden');
+  submitWizardPlan(true);
+  const room = window._workshopRoomCode || (new URLSearchParams(window.location.search).get('room_code') || 'EDU69').toUpperCase();
+  const returnUrl = `./index.html?room=${encodeURIComponent(room)}`;
+  showToast('กำลังพาน้องกลับสู่ห้องเรียนหลัก... 🚀', 'info');
+  setTimeout(() => {
+    window.location.href = returnUrl;
+  }, 1000);
 }
 
 /**
@@ -451,8 +507,8 @@ function goToWizardStep(step) {
       btnNext.innerHTML = `<span>สรุปเป้าหมาย K-P-A & ไปต่อ ➔</span><i data-lucide="sparkles" class="w-4 h-4 ml-1 inline"></i>`;
       btnNext.className = 'inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-purple-600 via-pink-500 to-amber-500 hover:from-purple-700 hover:to-pink-600 shadow-md shadow-purple-200 transition-all';
     } else if (step === 9) {
-      btnNext.innerHTML = `<span>ส่งแผนการสอน & ดู Overview ✨</span><i data-lucide="sparkles" class="w-4 h-4 ml-1 inline"></i>`;
-      btnNext.className = 'inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-pink-500 hover:bg-pink-600 shadow-md shadow-pink-200 transition-all';
+      btnNext.innerHTML = `<span>ส่งแผนการสอนสมบูรณ์แบบ ✨</span><i data-lucide="sparkles" class="w-4 h-4 ml-1 inline"></i>`;
+      btnNext.className = 'inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 shadow-md shadow-emerald-200 transition-all';
     } else {
       btnNext.innerHTML = `<span>ถัดไป</span><i data-lucide="chevron-right" class="w-4 h-4 ml-1 inline"></i>`;
       btnNext.className = 'inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 shadow-md shadow-purple-200 hover:shadow-lg transition-all';
@@ -1303,13 +1359,32 @@ function submitWizardPlan() {
     console.error(e);
   }
 
-  // Celebration Confetti
-  if (window.confetti) {
-    window.confetti({ particleCount: 110, spread: 85, origin: { y: 0.6 } });
+  // Mark completion status
+  if (!isDraftOnly) {
+    try {
+      localStorage.setItem('lesson_plan_submitted_complete', 'true');
+    } catch (e) {}
   }
 
-  showView('overview');
-  showToast('สร้างแผนการสอนสำเร็จแล้ว! ชม Overview ได้เลย 🎉', 'success');
+  // Celebration Confetti
+  if (window.confetti && !isDraftOnly) {
+    window.confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
+  }
+
+  const isFromWorkshop = Boolean(window._fromWorkshop || window.recallPendingReturn || new URLSearchParams(window.location.search).get('from') === 'workshop');
+
+  if (isFromWorkshop && !isDraftOnly) {
+    const room = window._workshopRoomCode || (new URLSearchParams(window.location.search).get('room_code') || 'EDU69').toUpperCase();
+    const returnUrl = `./index.html?room=${encodeURIComponent(room)}`;
+    showToast('ส่งแผนการสอนสมบูรณ์แบบเรียบร้อยแล้ว! 🚀 ยอดเยี่ยมมาก กำลังเด้งกลับสู่ห้องเรียนหลักอัตโนมัติ...', 'success');
+    showView('overview');
+    setTimeout(() => {
+      window.location.href = returnUrl;
+    }, 1800);
+  } else {
+    showView('overview');
+    showToast('สร้างแผนการสอนสำเร็จแล้ว! ชม Overview ได้เลย 🎉', 'success');
+  }
 }
 
 /**

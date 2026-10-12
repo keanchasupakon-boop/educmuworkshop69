@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>The Teaching Profession Workshop: ค้นพบตัวตน... สู่เส้นทางครูในฝัน</title>
+  <title>Inspire Your Dream: ค้นพบตัวตน... สู่เส้นทางครูในฝัน | คณะศึกษาศาสตร์ มช.</title>
   
   <!-- Google Fonts: Prompt, Kanit & Outfit for modern UI and clean room codes -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -251,7 +251,7 @@
 
     const DEFAULT_SESSION = {
       id: 'session_camp_1',
-      name: 'Workshop ม.6: Discover the Teacher in you',
+      name: 'Workshop ม.6: Inspire Your Dream',
       facilitatorName: 'พี่สกาย',
       code: 'EDU69',
       date: '13 ตุลาคม 2569'
@@ -268,7 +268,8 @@
       word_cloud_category: 'today', // 'today' | 'staff'
       is_anonymous_mode: false,
       is_presentation_mode: false,
-      active_spotlight: null
+      active_spotlight: null,
+      reset_timestamp: 0
     };
 
     // Authentic 4 Seating Zones
@@ -387,9 +388,15 @@
     };
 
     // Official Heartfelt Camp Blessing
-    const CAMP_FAREWELL_BLESSING = `จบแล้วน้า ค่ายนี้ พี่ๆทุกๆคนก็อยากจะขอบคุณที่วันนี้เราได้มาเจอกันน้า ก็อยากจะอวยพรน้องๆทุกคนเลยว่า ไม่ว่าสิ่งที่หวังจะใหญ่แค่ไหน ยากแค่ไหน เหนื่อยแค่ไหน ก็อยากให้รู้ไว้ว่า เราคนนี้จะไม่ยอมแพ้ จนกว่าเราจะได้อยู่ในที่ที่เรารู้สึกว่าเราอยากรู้ การเดินทางนี้อาจจะใกล้ ไกล ไม่เท่ากัน แต่อยากให้เตือนตัวเองไว้ ว่าอย่างน้อยตอนนี้เราได้เดินออกมาจามหาความฝันแล้วนะ
+    const CAMP_FAREWELL_BLESSING = `จบแล้วนะค่ายนี้...
+พี่ ๆ ทุกคนอยากที่จะขอบคุณ ที่วันนี้เราได้มาเจอกันนะ
+และอยากจะขออวยพรน้อง ๆ ทุกคนเลยว่า ไม่ว่าสิ่งที่หวังจะใหญ่แค่ไหน ยากแค่ไหน เหนื่อยแค่ไหน
+ก็อยากให้รู้ไว้ว่า เราคนนี้จะไม่ยอมแพ้ จนกว่าเราจะได้อยู่ในที่ที่ใจเราอยากอยู่จริง ๆ
+การเดินทางของแต่ละคนอาจจะใกล้ ไกล ไม่เท่ากัน
+แต่อยากให้เตือนตัวเองไว้เสมอว่า...
+“อย่างน้อยตอนนี้เราก็ได้เดินออกมาตามหาความฝันแล้วนะ” ✨
 
-— พี่ๆค่ายศึกษา มช 69`;
+— พี่ ๆ คณะศึกษาศาสตร์ มช. 69 —`;
 
     // Simple Web Audio API Synthesizer
     const AudioEngine = {
@@ -424,6 +431,22 @@
             osc.start(ctx.currentTime + i * 0.08);
             osc.stop(ctx.currentTime + i * 0.08 + 0.4);
           });
+        } catch (e) {}
+      },
+      playPop() {
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(600, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.1, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.1);
         } catch (e) {}
       }
     };
@@ -727,12 +750,16 @@
 
       const registerStudent = useCallback((name, zone, grade, kwl) => {
         const studentId = 'std_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
+        const roomCode = (activeSession.code || 'EDU69').toUpperCase();
         const newStudent = {
           id: studentId,
           name: name.trim(),
           zone: Number(zone),
           grade: grade || 'ม.6',
-          kwl: kwl || { whatIKnow: '', whatIWantToKnow: '', whatIHaveLearned: '' }
+          kwl: kwl || { whatIKnow: '', whatIWantToKnow: '', whatIHaveLearned: '' },
+          roomCode: roomCode,
+          sessionId: activeSession.id,
+          registeredAt: Date.now()
         };
         const updated = [...students.filter(s => s.id !== studentId), newStudent];
         setStudents(updated);
@@ -740,7 +767,6 @@
         localStorage.setItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION, JSON.stringify(newStudent));
 
         if (firestoreDb) {
-          const roomCode = (activeSession.code || 'EDU69').toUpperCase();
           firestoreDb.collection('workshop_rooms').doc(roomCode).collection('students').doc(newStudent.id).set(newStudent)
             .catch(e => console.warn('Cloud registerStudent error:', e));
         }
@@ -750,9 +776,12 @@
       }, [students, activeSession, getSessionKey, writeStorage]);
 
       const updateStudentKwl = useCallback((studentId, kwlUpdates) => {
+        const existingStudent = students.find(s => s.id === studentId);
+        const mergedKwl = { ...(existingStudent?.kwl || {}), ...kwlUpdates };
+
         const updated = students.map(s => {
           if (s.id === studentId) {
-            return { ...s, kwl: { ...(s.kwl || {}), ...kwlUpdates } };
+            return { ...s, kwl: mergedKwl };
           }
           return s;
         });
@@ -764,7 +793,7 @@
           if (current?.id === studentId) {
             localStorage.setItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION, JSON.stringify({
               ...current,
-              kwl: { ...(current.kwl || {}), ...kwlUpdates }
+              kwl: mergedKwl
             }));
           }
         } catch (e) {}
@@ -772,7 +801,7 @@
         if (firestoreDb) {
           const roomCode = (activeSession.code || 'EDU69').toUpperCase();
           firestoreDb.collection('workshop_rooms').doc(roomCode).collection('students').doc(studentId).set({
-            kwl: kwlUpdates
+            kwl: mergedKwl
           }, { merge: true }).catch(e => console.warn('Cloud updateStudentKwl error:', e));
         }
 
@@ -870,16 +899,17 @@
 
       const submitPhase2Vote = useCallback((choice, questionId, student) => {
         if (!student) return;
-        const voteDocId = `${student.id}_${questionId}`;
+        const qId = Number(questionId);
+        const voteDocId = `${student.id}_${qId}`;
         const newVote = {
           id: voteDocId,
           student_id: student.id,
           student_name: student.name,
-          question_id: questionId,
+          question_id: qId,
           choice: choice,
           timestamp: Date.now()
         };
-        const updated = [...phase2Answers.filter(item => !(item.student_id === student.id && item.question_id === questionId)), newVote];
+        const updated = [...phase2Answers.filter(item => !(item.student_id === student.id && Number(item.question_id) === qId)), newVote];
         setPhase2Answers(updated);
         writeStorage(getSessionKey(STORAGE_KEYS.PHASE_2_ANSWERS), updated);
 
@@ -898,7 +928,7 @@
           id: 'p3_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
           student_id: student.id,
           student_name: student.name,
-          zone: student.zone,
+          zone: Number(student.zone || 1),
           role: role || 'ตัวแทนกลุ่ม',
           problem: problem.trim(),
           cause: cause.trim(),
@@ -922,6 +952,7 @@
       }, [phase3Posts, activeSession, getSessionKey, writeStorage]);
 
       const toggleLikePhase3Post = useCallback((postId, studentId) => {
+        if (!studentId) return;
         let targetPost = null;
         const updated = phase3Posts.map(post => {
           if (post.id === postId) {
@@ -1040,7 +1071,9 @@
 
       const resetSessionData = useCallback(() => {
         const sKey = (k) => `${currentSessionId}_${k}`;
-        setAppState(DEFAULT_APP_STATE);
+        const resetTs = Date.now();
+        const resetAppState = { ...DEFAULT_APP_STATE, reset_timestamp: resetTs };
+        setAppState(resetAppState);
         setStudents([]);
         setPhase1Answers([]);
         setPhase2Answers([]);
@@ -1049,7 +1082,7 @@
         setSchoolPollVotes([]);
         setStudentPulses({});
 
-        localStorage.removeItem(sKey(STORAGE_KEYS.APP_STATE));
+        writeStorage(sKey(STORAGE_KEYS.APP_STATE), resetAppState);
         localStorage.removeItem(sKey(STORAGE_KEYS.STUDENTS));
         localStorage.removeItem(sKey(STORAGE_KEYS.PHASE_1_ANSWERS));
         localStorage.removeItem(sKey(STORAGE_KEYS.PHASE_2_ANSWERS));
@@ -1062,7 +1095,7 @@
           const roomCode = (activeSession.code || 'EDU69').toUpperCase();
           const roomRef = firestoreDb.collection('workshop_rooms').doc(roomCode);
           roomRef.set({
-            appState: DEFAULT_APP_STATE,
+            appState: resetAppState,
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
           }, { merge: true }).catch(() => {});
 
@@ -1076,7 +1109,7 @@
         }
 
         reloadAll();
-      }, [currentSessionId, activeSession, reloadAll]);
+      }, [currentSessionId, activeSession, reloadAll, writeStorage]);
 
       const exportSessionDataAsJson = useCallback(() => {
         const data = {
@@ -1295,45 +1328,27 @@
             </div>
 
             <div className="text-xs text-slate-600 leading-relaxed bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200">
-              <span className="font-bold text-amber-900 block mb-1">💡 ต้องการเริ่มใหม่ใช่ไหม?</span>
-              หากน้องกรอกชื่อผิด, เลือกโซนผิด, หรือต้องการเริ่มต้นทำกิจกรรมใหม่ตั้งแต่ต้น สามารถเลือกวิธีด้านล่างได้เลยนะจ๊ะ:
+              <span className="font-bold text-amber-900 block mb-1">💡 ต้องการออกจากห้องเรียนหรือเริ่มใหม่ใช่ไหม?</span>
+              ระบบจะล้างข้อมูลการเชื่อมต่อของเครื่องนี้ และพากลับไปยังหน้าแรกเพื่อกรอกรหัสห้องหรือลงทะเบียนใหม่ทันทีจ้า
             </div>
 
             <div className="space-y-2.5">
-              {/* Option 1: Soft reset */}
+              {/* Single Clear Reset Button */}
               <button
                 type="button"
-                onClick={onSoftReset}
-                className="w-full text-left p-3.5 rounded-2xl border-2 border-sky-200 hover:border-sky-400 bg-sky-50/40 hover:bg-sky-50 transition cursor-pointer group"
+                onClick={() => {
+                  try {
+                    if (typeof onHardReset === 'function') onHardReset();
+                    else if (typeof onSoftReset === 'function') onSoftReset();
+                  } catch (err) {
+                    console.error('Reset execution error:', err);
+                  }
+                  if (typeof onClose === 'function') onClose();
+                }}
+                className="w-full p-4 rounded-2xl border-2 border-rose-400 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-md transition cursor-pointer active:scale-95 flex items-center justify-center gap-2"
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-heading font-bold text-xs text-sky-950 flex items-center gap-1.5">
-                    <span>🔄</span>
-                    <span>1. เริ่มต้นใหม่บนเครื่องนี้ (เปลี่ยนชื่อ / โซน / ห้อง)</span>
-                  </span>
-                  <span className="text-xs text-sky-600 group-hover:translate-x-1 transition">➡️</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                  ลบข้อมูลในเครื่องนี้ เพื่อให้กรอกรหัสห้องและลงทะเบียนใหม่ (คำตอบเดิมยังคงบันทึกอยู่ในห้อง)
-                </p>
-              </button>
-
-              {/* Option 2: Hard reset (Wipe) */}
-              <button
-                type="button"
-                onClick={onHardReset}
-                className="w-full text-left p-3.5 rounded-2xl border-2 border-rose-200 hover:border-rose-400 bg-rose-50/40 hover:bg-rose-50 transition cursor-pointer group"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-heading font-bold text-xs text-rose-950 flex items-center gap-1.5">
-                    <span>🗑️</span>
-                    <span>2. ลบข้อมูลของฉัน & รีเซ็ตเริ่มต้นใหม่ทั้งหมด</span>
-                  </span>
-                  <span className="text-xs text-rose-600 group-hover:translate-x-1 transition">➡️</span>
-                </div>
-                <p className="text-[11px] text-slate-500 mt-1 leading-snug">
-                  ลบชื่อและคำตอบทั้งหมดของน้องออกจากห้องเรียน แล้วเริ่มต้นใหม่ตั้งแต่ศูนย์
-                </p>
+                <span className="text-base">🔄</span>
+                <span className="font-heading font-bold text-sm">ยืนยัน ออกจากห้องเรียนและเริ่มต้นใหม่ทันที</span>
               </button>
             </div>
 
@@ -1380,7 +1395,7 @@
               </div>
               <div>
                 <h1 className="font-heading font-extrabold text-xs sm:text-sm text-slate-900 leading-tight">
-                  The Teaching Profession Workshop
+                  Inspire Your Dream Workshop
                 </h1>
                 <p className="text-[10px] text-sky-700 hidden sm:block">
                   ห้อง: {activeSession.name} ({activeSession.code}) • ผู้ดูแล: {activeSession.facilitatorName}
@@ -1575,6 +1590,19 @@
                 <span>🎒 แผนการสอน (Lesson Plan)</span>
                 <span className="text-[10px] opacity-75">↗</span>
               </a>
+
+              {/* RECALL STUDENTS BUTTON ON PRESENTATION STAGE */}
+              <button
+                onClick={() => {
+                  db.triggerFacilitatorRecall();
+                  alert('ส่งสัญญาณเรียกรวมพลกลับห้องเรียนเรียบร้อยแล้ว! 📢 ระบบจะแจ้งเตือนบนหน้าจอของน้องๆ ทุกคน');
+                }}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md flex items-center gap-1.5 transition cursor-pointer"
+                title="ส่งสัญญาณเรียกรวมพลน้องๆ กลับห้องเรียนหลัก"
+              >
+                <span>📢</span>
+                <span className="hidden sm:inline">เรียกรวมพล</span>
+              </button>
 
               {/* QUICK RESTART / RESET ROOM BUTTON FOR PRESENTER (ITEM #3) */}
               <button
@@ -1951,12 +1979,12 @@
                       })}
                       className="p-4 rounded-2xl bg-slate-900 border border-purple-500/40 cursor-pointer hover:border-purple-400 hover:scale-[1.02] transition shadow-md"
                     >
-                      <p className="text-xs sm:text-sm text-slate-200 line-clamp-4 leading-relaxed">
+                      <p className="text-sm sm:text-base md:text-lg font-bold text-amber-200 line-clamp-4 leading-relaxed">
                         "{s.kwl.whatIHaveLearned}"
                       </p>
-                      <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-purple-300">
-                        <span className="font-bold">~ {isAnonymous ? 'น้อง ม.6' : s.name}</span>
-                        <span>โซน {s.zone}</span>
+                      <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                        <span>{isAnonymous ? 'น้อง ม.6' : s.name}</span>
+                        <span className="text-[10px] bg-purple-950/70 text-purple-300 px-2 py-0.5 rounded-full border border-purple-800/40">โซน {s.zone}</span>
                       </div>
                     </div>
                   ))}
@@ -3321,11 +3349,11 @@
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 max-h-[460px] overflow-y-auto custom-scroll pr-1">
                 {students.filter(s => s.kwl?.whatIHaveLearned).map((s, idx) => (
-                  <div key={s.id || idx} className="p-3.5 rounded-2xl bg-purple-50/60 border border-purple-200 text-xs">
-                    <p className="font-medium text-slate-800 leading-relaxed">"{s.kwl.whatIHaveLearned}"</p>
-                    <div className="mt-2.5 pt-2 border-t border-purple-200 flex items-center justify-between text-[11px] text-purple-800">
-                      <span className="font-bold">{s.name}</span>
-                      <span>โซน {s.zone}</span>
+                  <div key={s.id || idx} className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200">
+                    <p className="font-bold text-sm text-slate-900 leading-relaxed">"{s.kwl.whatIHaveLearned}"</p>
+                    <div className="mt-2.5 pt-2 border-t border-purple-200 flex items-center justify-between text-[11px] text-slate-500">
+                      <span>{s.name}</span>
+                      <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-medium">โซน {s.zone}</span>
                     </div>
                   </div>
                 ))}
@@ -3442,8 +3470,42 @@
 
       const matchedStudent = useMemo(() => {
         if (!currentStudent) return null;
+        // Verify room match if stored
+        const currentRoomCode = (activeSession?.code || 'EDU69').toUpperCase();
+        if (currentStudent.roomCode && currentStudent.roomCode !== currentRoomCode) {
+          return null;
+        }
         return students.find(s => s.id === currentStudent.id) || currentStudent;
-      }, [students, currentStudent]);
+      }, [students, currentStudent, activeSession]);
+
+      // Auto-detect when student has been reset by facilitator or room wiped (Fix #2 & #10)
+      useEffect(() => {
+        if (!currentStudent) return;
+        const roomResetTs = appState?.reset_timestamp || 0;
+        const studentRegTs = currentStudent?.registeredAt || 0;
+        if (roomResetTs > 0 && studentRegTs > 0 && roomResetTs > studentRegTs) {
+          console.log('Room was reset by host. Resetting student device.');
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
+          localStorage.removeItem('classroom_current_student_session');
+          setCurrentStudent(null);
+          return;
+        }
+
+        // If cloud is online, and room students list has loaded and current student is confirmed not in it
+        if (db.cloudStatus === 'online' && Array.isArray(students)) {
+          const now = Date.now();
+          const registeredLongEnough = !currentStudent.registeredAt || (now - currentStudent.registeredAt > 5000);
+          if (registeredLongEnough) {
+            const existsInRoom = students.some(s => s.id === currentStudent.id);
+            if (!existsInRoom) {
+              console.log('Student not found in room students list. Returning to registration.');
+              localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
+              localStorage.removeItem('classroom_current_student_session');
+              setCurrentStudent(null);
+            }
+          }
+        }
+      }, [appState?.reset_timestamp, currentStudent, db.cloudStatus, students]);
 
       // Listen for navbar event trigger
       useEffect(() => {
@@ -3508,25 +3570,51 @@
 
       // Soft reset: Clear device session and restart registration
       const handleSoftReset = () => {
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
-        setCurrentStudent(null);
-        setShowResetModal(false);
-        AudioEngine.playPop();
+        try {
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
+          localStorage.removeItem('classroom_current_student_session');
+          if (window.history.pushState) {
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({ path: cleanUrl }, '', cleanUrl);
+          }
+          setCurrentStudent(null);
+          setShowResetModal(false);
+          if (AudioEngine?.playPop) AudioEngine.playPop();
+        } catch (e) {
+          console.error('Soft reset error:', e);
+          setCurrentStudent(null);
+          setShowResetModal(false);
+        }
       };
 
       // Hard reset: Remove student from DB and clear device session
       const handleHardReset = () => {
-        if (matchedStudent?.id) {
-          removeStudent(matchedStudent.id);
+        try {
+          if (matchedStudent?.id) {
+            try { removeStudent(matchedStudent.id); } catch (e) {}
+          }
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
+          localStorage.removeItem('classroom_current_student_session');
+          if (AudioEngine?.playPop) AudioEngine.playPop();
+          setCurrentStudent(null);
+          setShowResetModal(false);
+          setTimeout(() => {
+            window.location.href = window.location.pathname;
+          }, 150);
+        } catch (e) {
+          console.error('Hard reset error:', e);
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
+          localStorage.removeItem('classroom_current_student_session');
+          setCurrentStudent(null);
+          setShowResetModal(false);
+          window.location.href = window.location.pathname;
         }
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
-        setCurrentStudent(null);
-        setShowResetModal(false);
-        AudioEngine.playPop();
       };
 
       const handleLeaveClassroom = () => {
-        setShowResetModal(true);
+        if (confirm('น้องต้องการออกจากห้องเรียนและจบค่ายนี้ใช่หรือไม่? ✨')) {
+          handleHardReset();
+        }
       };
 
       return (
@@ -3583,6 +3671,7 @@
             */}
             {!matchedStudent ? (
               <StudentPhase0
+                key="student_unregistered_phase0"
                 db={db}
                 currentStudent={null}
                 onRegistered={(student) => setCurrentStudent(student)}
@@ -3592,6 +3681,7 @@
               <>
                 {currentPhase === 0 && (
                   <StudentPhase0
+                    key={`student_${matchedStudent?.id || 'reg'}_phase0`}
                     db={db}
                     currentStudent={matchedStudent}
                     onRegistered={(student) => setCurrentStudent(student)}
@@ -3855,7 +3945,7 @@
 
             <div>
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-800 inline-block mb-1">
-                The Teaching Profession Workshop
+                Inspire Your Dream Workshop
               </span>
               <h2 className="text-2xl font-heading font-extrabold text-slate-900 mt-1">
                 เข้าร่วมห้องเรียน
@@ -4325,7 +4415,7 @@
       const currentDuty = PHASE_2_CURATED_DUTIES.find(q => q.id === questionId) || PHASE_2_CURATED_DUTIES[0];
 
       const myVote = phase2Answers.find(
-        a => a.student_id === currentStudent?.id && a.question_id === questionId
+        a => a.student_id === currentStudent?.id && Number(a.question_id) === Number(questionId)
       );
 
       return (
@@ -4386,8 +4476,8 @@
 
     // --- Student Phase 3: Schooltopia with Gated Lesson Plan Button (Fix #3) ---
     function StudentPhase3({ db, currentStudent }) {
-      const { phase3Posts, submitPhase3Post, toggleLikePhase3Post, currentSessionId, appState } = db;
-      const studentZoneId = currentStudent?.zone || 1;
+      const { phase3Posts, submitPhase3Post, toggleLikePhase3Post, currentSessionId, appState, activeSession } = db;
+      const studentZoneId = Number(currentStudent?.zone || 1);
       const zoneInfo = ZONES.find(z => z.id === studentZoneId) || ZONES[0];
 
       const [problem, setProblem] = useState('');
@@ -4396,7 +4486,7 @@
       const [role, setRole] = useState('ผู้บันทึกสรุป');
       const [toast, setToast] = useState('');
 
-      const sameZonePosts = phase3Posts.filter(p => p.zone === studentZoneId);
+      const sameZonePosts = phase3Posts.filter(p => Number(p.zone) === studentZoneId);
       const isLessonPlanUnlocked = Boolean(appState.phase_3_unlocked_lesson_plan);
 
       const handleSubmit = (e) => {
@@ -4415,7 +4505,8 @@
         setTimeout(() => setToast(''), 2500);
       };
 
-      const lessonPlanUrl = `./lesson-plan.html?student_name=${encodeURIComponent(currentStudent?.name || '')}&student_id=${encodeURIComponent(currentStudent?.id || '')}&from=workshop&session_id=${encodeURIComponent(currentSessionId || '')}`;
+      const currentRoomCode = (activeSession?.code || db?.activeSession?.code || 'EDU69').toUpperCase();
+      const lessonPlanUrl = `./lesson-plan.html?student_name=${encodeURIComponent(currentStudent?.name || '')}&student_id=${encodeURIComponent(currentStudent?.id || '')}&from=workshop&session_id=${encodeURIComponent(currentSessionId || '')}&room_code=${encodeURIComponent(currentRoomCode)}`;
 
       return (
         <div className="space-y-5 view-transition">
@@ -4592,7 +4683,7 @@
       );
     }
 
-    // --- Student Phase 4: Finale, 9:16 Story Card & PNG Download (Fix #5) ---
+    // --- Student Phase 4: Finale, 9:16 Story Card & Inclusive PNG Download ---
     function StudentPhase4({ db, currentStudent, onLeaveClassroom }) {
       const { appState, updateStudentKwl, submitWordCloud } = db;
       const step = appState.phase_4_step || 1;
@@ -4607,6 +4698,15 @@
       const [isWordSubmitted, setIsWordSubmitted] = useState(false);
       const [toast, setToast] = useState('');
       const [isDownloading, setIsDownloading] = useState(false);
+      const [previewImage, setPreviewImage] = useState(null);
+
+      // Auto-clear inputs to empty string when teacher changes category / next round
+      useEffect(() => {
+        setW1('');
+        setW2('');
+        setW3('');
+        setIsWordSubmitted(false);
+      }, [currentCategory]);
 
       const handleLSubmit = (e) => {
         e.preventDefault();
@@ -4626,32 +4726,44 @@
         setTimeout(() => setToast(''), 2500);
       };
 
-      // Download 9:16 Story Card as PNG using html2canvas (Fix #5)
+      // Download 9:16 Story Card as PNG using html2canvas with inclusive fallback for iOS/Android
       const handleDownloadCard = () => {
         const cardEl = document.getElementById('digitalKeepsakeStoryCard');
         if (!cardEl) return;
         if (!window.html2canvas) {
-          alert('กำลังดาวน์โหลดโปรแกรมสร้างรูปภาพ กรุณาลองใหม่อีกครั้ง');
+          alert('กำลังเตรียมระบบสร้างรูปภาพ กรุณาลองใหม่อีกครั้ง');
           return;
         }
 
         setIsDownloading(true);
         window.html2canvas(cardEl, {
-          scale: 2.5,
+          scale: 2,
           useCORS: true,
+          allowTaint: true,
           backgroundColor: '#090d16'
         }).then(canvas => {
-          const link = document.createElement('a');
-          link.download = `CMU69_StoryCard_${currentStudent?.name || 'student'}.png`;
-          link.href = canvas.toDataURL('image/png');
-          link.click();
+          const imgUrl = canvas.toDataURL('image/png');
+          setPreviewImage(imgUrl);
+
+          // Try automatic download tag
+          try {
+            const link = document.createElement('a');
+            link.download = `CMU69_StoryCard_${currentStudent?.name || 'student'}.png`;
+            link.href = imgUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } catch (e) {
+            console.warn('Auto download not supported, preview image is displayed for manual saving');
+          }
+
           setIsDownloading(false);
-          setToast('ดาวน์โหลดรูปภาพ 9:16 เรียบร้อย! 📸');
+          setToast('สร้างรูปภาพการ์ดเรียบร้อย! 📸');
           setTimeout(() => setToast(''), 2500);
         }).catch(err => {
           console.error(err);
           setIsDownloading(false);
-          alert('ไม่สามารถบันทึกเป็นรูปภาพได้ในเบราว์เซอร์นี้ กรุณาแคปหน้าจอแทนนะครับ');
+          alert('ไม่สามารถสร้างรูปภาพได้ กรุณาแคปหน้าจอแทนนะครับ');
         });
       };
 
@@ -4725,7 +4837,7 @@
             </div>
           )}
 
-          {/* STEP 2: MENTIMETER WORD CLOUD */}
+          {/* STEP 2: MENTIMETER WORD CLOUD (FREE WORDS FOR TODAY) */}
           {step === 2 && (
             <div className="rounded-3xl p-5 sm:p-6 border-2 border-purple-500 bg-slate-900 text-white shadow-xl space-y-4">
               <div className="text-center">
@@ -4733,24 +4845,35 @@
                   Mentimeter-style Word Cloud
                 </span>
                 <h4 className="font-heading font-bold text-base sm:text-lg text-white mt-1">
-                  {currentCategory === 'today' ? '☁️ 3 คำให้ค่ายวันนี้ (3 Words for Today)' : '☁️ 3 คำถึงพี่ๆ Staff (3 Words for Staff)'}
+                  {currentCategory === 'today' ? '☁️ Free Words for Today (คำบอกเล่าวันนี้)' : '☁️ Free Words for Staff (คำถึงพี่ๆ Staff)'}
                 </h4>
+                <p className="text-xs text-purple-200 mt-1">
+                  พิมพ์คำสั้นๆ ที่นึกถึง แล้วกดส่งขึ้นจอใหญ่ได้เลยจ้า ✨
+                </p>
               </div>
 
               {isWordSubmitted ? (
-                <div className="p-4 rounded-2xl bg-white/10 text-center text-xs space-y-2">
+                <div className="p-4 rounded-2xl bg-white/10 text-center text-xs space-y-3">
                   <p className="text-amber-300 font-bold">✓ คำตอบของน้องขึ้นเมฆคำศัพท์บนจอกลางแล้ว!</p>
-                  <div className="flex justify-center gap-2">
-                    <span className="px-2.5 py-1 rounded-xl bg-purple-500/40 text-purple-200 font-bold">{w1}</span>
-                    <span className="px-2.5 py-1 rounded-xl bg-sky-500/40 text-sky-200 font-bold">{w2}</span>
-                    <span className="px-2.5 py-1 rounded-xl bg-amber-500/40 text-amber-200 font-bold">{w3}</span>
+                  <div className="flex justify-center gap-2 flex-wrap">
+                    {w1 && <span className="px-3 py-1 rounded-xl bg-purple-500/40 text-purple-200 font-bold">{w1}</span>}
+                    {w2 && <span className="px-3 py-1 rounded-xl bg-sky-500/40 text-sky-200 font-bold">{w2}</span>}
+                    {w3 && <span className="px-3 py-1 rounded-xl bg-amber-500/40 text-amber-200 font-bold">{w3}</span>}
                   </div>
-                  <button onClick={() => setIsWordSubmitted(false)} className="text-[11px] text-purple-300 underline pt-1 cursor-pointer">
-                    พิมพ์คำใหม่
+                  <button 
+                    onClick={() => {
+                      setW1('');
+                      setW2('');
+                      setW3('');
+                      setIsWordSubmitted(false);
+                    }} 
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 transition cursor-pointer shadow-sm"
+                  >
+                    🔄 พิมพ์คำใหม่ (ส่งอีกรอบ)
                   </button>
                 </div>
               ) : (
-                <form onSubmit={handleWordSubmit} className="space-y-2.5">
+                <form onSubmit={handleWordSubmit} className="space-y-3">
                   <div className="grid grid-cols-3 gap-2">
                     <input
                       type="text"
@@ -4758,7 +4881,7 @@
                       value={w1}
                       onChange={e => setW1(e.target.value)}
                       maxLength={15}
-                      className="px-2.5 py-2 rounded-xl bg-white/10 border border-white/20 text-xs text-white placeholder-slate-400 outline-hidden focus:border-purple-400 text-center"
+                      className="px-2.5 py-2.5 rounded-xl bg-white/10 border border-white/20 text-xs text-white placeholder-slate-400 outline-hidden focus:border-purple-400 text-center font-medium"
                     />
                     <input
                       type="text"
@@ -4766,7 +4889,7 @@
                       value={w2}
                       onChange={e => setW2(e.target.value)}
                       maxLength={15}
-                      className="px-2.5 py-2 rounded-xl bg-white/10 border border-white/20 text-xs text-white placeholder-slate-400 outline-hidden focus:border-purple-400 text-center"
+                      className="px-2.5 py-2.5 rounded-xl bg-white/10 border border-white/20 text-xs text-white placeholder-slate-400 outline-hidden focus:border-purple-400 text-center font-medium"
                     />
                     <input
                       type="text"
@@ -4774,7 +4897,7 @@
                       value={w3}
                       onChange={e => setW3(e.target.value)}
                       maxLength={15}
-                      className="px-2.5 py-2 rounded-xl bg-white/10 border border-white/20 text-xs text-white placeholder-slate-400 outline-hidden focus:border-purple-400 text-center"
+                      className="px-2.5 py-2.5 rounded-xl bg-white/10 border border-white/20 text-xs text-white placeholder-slate-400 outline-hidden focus:border-purple-400 text-center font-medium"
                     />
                   </div>
                   <button
@@ -4788,15 +4911,19 @@
             </div>
           )}
 
-          {/* STEP 3: FINALE & 9:16 DIGITAL STORY CARD DOWNLOAD (FIX #5) */}
+          {/* STEP 3: FINALE & 9:16 DIGITAL STORY CARD DOWNLOAD */}
           {step === 3 && (
             <div className="space-y-6 animate-cute-pop pb-6">
               <div className="p-6 rounded-3xl bg-gradient-to-tr from-amber-400 via-pink-500 to-purple-600 text-white text-center shadow-xl space-y-2">
-                <span className="text-4xl block">🎓</span>
+                <span className="text-4xl block">🎓✨</span>
                 <h3 className="text-xl sm:text-2xl font-heading font-black">
-                  ยินดีด้วยนะ! จบค่ายแล้วจ้า
+                  จบแล้วนะค่ายนี้!
                 </h3>
-                <p className="text-xs text-amber-100">
+                <p className="text-xs sm:text-sm text-amber-100 font-medium">
+                  พี่ ๆ ทุกคนอยากที่จะขอบคุณ ที่วันนี้เราได้มาเจอกันนะ ❤️<br/>
+                  “อย่างน้อยตอนนี้เราก็ได้เดินออกมาตามหาความฝันแล้วนะ”
+                </p>
+                <p className="text-[11px] text-purple-200">
                   คณะศึกษาศาสตร์ มหาวิทยาลัยเชียงใหม่
                 </p>
               </div>
@@ -4818,50 +4945,51 @@
                       FACULTY OF EDUCATION CMU 69
                     </span>
                     <h5 className="font-heading font-bold text-sm text-slate-200 mt-2">
-                      The Teaching Profession Workshop
+                      Inspire Your Dream Workshop
                     </h5>
                     <p className="text-[11px] text-purple-300 font-medium">ค้นพบตัวตน... สู่เส้นทางครูในฝัน</p>
                   </div>
 
-                  {/* Middle: Student Profile */}
-                  <div className="text-center my-auto space-y-3">
+                  {/* Middle: Student Profile & Centered Heartfelt Closing Blessing Quote */}
+                  <div className="text-center my-auto space-y-4">
                     <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-amber-400 to-pink-500 text-slate-950 flex items-center justify-center text-2xl font-bold shadow-lg">
                       🎒
                     </div>
                     <div>
-                      <h4 className="font-heading font-extrabold text-xl text-white">
+                      <h4 className="font-heading font-extrabold text-xl sm:text-2xl text-white">
                         น้อง {currentStudent?.name}
                       </h4>
                       <p className="text-xs text-amber-300 font-medium mt-0.5">
-                        {currentStudent?.grade || 'ม.6'} • {ZONES.find(z => z.id === currentStudent?.zone)?.badge}
+                        {currentStudent?.grade || 'ม.6'} • {ZONES.find(z => z.id === currentStudent?.zone)?.badge || `โซน ${currentStudent?.zone || 1}`}
                       </p>
                     </div>
 
-                    {/* KWL Reflection Box */}
-                    <div className="p-3.5 rounded-2xl bg-white/10 border border-white/20 text-left text-xs space-y-1">
-                      <span className="text-[10px] text-amber-300 font-bold block uppercase">🌱 What I Have Learned:</span>
-                      <p className="text-slate-200 line-clamp-3 italic leading-relaxed">
-                        "{currentStudent?.kwl?.whatIHaveLearned || 'ได้เรียนรู้บทบาทหน้าที่ครูที่หลากหลายและเทคนิคการจัดการเรียนรู้'}"
+                    {/* Centered Heartfelt Closing Blessing Quote (No KWL, No 3-words) */}
+                    <div className="p-4 sm:p-5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 text-center space-y-2.5 shadow-inner">
+                      <span className="text-2xl block">🎓✨</span>
+                      <h5 className="font-heading font-black text-base sm:text-lg text-amber-300">
+                        จบแล้วนะค่ายนี้...
+                      </h5>
+                      <p className="text-xs text-slate-100 font-medium leading-relaxed">
+                        พี่ ๆ ทุกคนอยากที่จะขอบคุณ<br/>
+                        ที่วันนี้เราได้มาเจอกันนะ ❤️
+                      </p>
+                      <p className="text-xs sm:text-sm text-amber-200 font-bold leading-relaxed pt-1.5 border-t border-white/15">
+                        “อย่างน้อยตอนนี้เราก็ได้เดินออกมาตามหาความฝันแล้วนะ”
+                      </p>
+                      <p className="text-[11px] text-purple-200 leading-relaxed pt-0.5">
+                        ขอให้น้องเชื่อมั่นในตัวเองเสมอ สู้ ๆ นะว่าที่ครูคนเก่ง! 🌟
                       </p>
                     </div>
-
-                    {/* 3 Words Box */}
-                    {(w1 || w2 || w3) && (
-                      <div className="flex justify-center gap-1.5 flex-wrap">
-                        {w1 && <span className="text-[10px] px-2 py-0.5 rounded-lg bg-purple-500/40 text-purple-200 font-bold border border-purple-400/40">{w1}</span>}
-                        {w2 && <span className="text-[10px] px-2 py-0.5 rounded-lg bg-sky-500/40 text-sky-200 font-bold border border-sky-400/40">{w2}</span>}
-                        {w3 && <span className="text-[10px] px-2 py-0.5 rounded-lg bg-amber-500/40 text-amber-200 font-bold border border-amber-400/40">{w3}</span>}
-                      </div>
-                    )}
                   </div>
 
-                  {/* Bottom: Seniors' Blessing Quote */}
-                  <div className="pt-3 border-t border-white/20 text-center space-y-1">
-                    <p className="text-[10px] sm:text-[11px] text-amber-100 leading-snug line-clamp-3 italic opacity-90">
-                      "ไม่ว่าสิ่งที่หวังจะใหญ่แค่ไหน ยากแค่ไหน เหนื่อยแค่ไหน ก็อยากให้รู้ไว้ว่า เราคนนี้จะไม่ยอมแพ้..."
-                    </p>
-                    <span className="text-[9px] text-amber-300 font-bold block">
-                      — พี่ๆ ค่ายศึกษาศาสตร์ มช 69
+                  {/* Bottom: Faculty Signature */}
+                  <div className="pt-3 border-t border-white/20 text-center space-y-0.5">
+                    <span className="text-[10px] text-amber-300 font-bold block">
+                      — คณะศึกษาศาสตร์ มหาวิทยาลัยเชียงใหม่ (มช. 69) —
+                    </span>
+                    <span className="text-[9px] text-slate-400">
+                      Inspire Your Dream Workshop
                     </span>
                   </div>
                 </div>
@@ -4882,6 +5010,47 @@
                     className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition cursor-pointer"
                   >
                     🚪 ออกจากห้องเรียน / จบค่ายนี้
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* INCLUSIVE PREVIEW MODAL FOR MOBILE / IOS / ANDROID */}
+          {previewImage && (
+            <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+              <div className="bg-slate-900 rounded-3xl max-w-sm w-full p-4 sm:p-5 border-2 border-amber-400 text-center space-y-3.5 animate-cute-pop my-auto">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-700">
+                  <span className="text-xs font-bold text-amber-300">📸 บันทึกรูปภาพการ์ดความทรงจำ</span>
+                  <button 
+                    onClick={() => setPreviewImage(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="rounded-2xl overflow-hidden border border-amber-400/40 shadow-xl max-h-[60vh] flex items-center justify-center bg-black">
+                  <img src={previewImage} alt="Story Card" className="max-h-[58vh] w-auto object-contain select-none" />
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-amber-400/10 border border-amber-400/30 text-amber-200 text-xs font-medium leading-relaxed">
+                  💡 <strong className="text-white">สำหรับ iPhone / มือถือ:</strong> แตะค้างที่รูปภาพด้านบน แล้วเลือก <strong className="text-amber-300">"บันทึกรูปภาพ" (Save Image)</strong> ได้ทันทีจ้า!
+                </div>
+
+                <div className="flex gap-2">
+                  <a
+                    href={previewImage}
+                    download={`CMU69_StoryCard_${currentStudent?.name || 'student'}.png`}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 transition flex items-center justify-center gap-1.5"
+                  >
+                    <span>📥 ดาวน์โหลดไฟล์</span>
+                  </a>
+                  <button
+                    onClick={() => setPreviewImage(null)}
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                  >
+                    ปิด
                   </button>
                 </div>
               </div>
