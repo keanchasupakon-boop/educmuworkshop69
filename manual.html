@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>คู่มือการใช้งานเว็บไซต์ฉบับสมบูรณ์ (Full Infographic Manual) | คณะศึกษาศาสตร์ มช.</title>
+
+  <!-- Google Fonts: Kanit & Prompt -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700;800;900&family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Prompt', 'sans-serif'],
+            heading: ['Kanit', 'Prompt', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- html2canvas for 1-click PNG export -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <style>
+    body {
+      background: linear-gradient(135deg, #f5f3ff 0%, #eff6ff 50%, #ecfdf5 100%);
+      min-height: 100vh;
+    }
+    .poster-card {
+      box-shadow: 0 20px 50px -12px rgba(88, 28, 135, 0.15);
+    }
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white; }
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased py-6 px-3 sm:px-6">
+
+  <!-- Top Controls Bar -->
+  <div class="no-print max-w-6xl mx-auto mb-6 bg-white/95 backdrop-blur-md p-4 rounded-3xl border-2 border-purple-200 shadow-sm flex flex-wrap items-center justify-between gap-3 sticky top-3 z-50">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 via-pink-500 to-amber-400 flex items-center justify-center text-white text-xl shadow-sm">
+        📖
+      </div>
+      <div>
+        <h1 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+          คู่มือการใช้งานเว็บฉบับสมบูรณ์ (ครบทุกกิจกรรม & ทุกขั้นตอนย่อย)
+        </h1>
+        <p class="text-xs text-slate-500">
+          รวมครบทั้ง KWL • What is a teacher? • Teacher's duties • Schooltopia • Lesson Plan Studio • Finale (โหลดเป็น PNG ได้ทันที)
+        </p>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="./index.html" class="px-3.5 py-2 rounded-2xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition">
+        ← กลับหน้าห้องเรียนหลัก
+      </a>
+      <button onclick="downloadPoster('studentManualPoster', 'Workshop-Student-Full-Manual.png', this)" class="px-4 py-2.5 rounded-2xl text-xs font-bold text-white bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 shadow-md shadow-sky-200 transition cursor-pointer flex items-center gap-1.5">
+        <span>📸 โหลดรูปคู่มือนักเรียน (PNG)</span>
+      </button>
+      <button onclick="downloadPoster('teacherManualPoster', 'Workshop-Teacher-Full-Manual.png', this)" class="px-4 py-2.5 rounded-2xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 shadow-md shadow-purple-200 transition cursor-pointer flex items-center gap-1.5">
+        <span>📸 โหลดรูปคู่มือวิทยากร/ครู (PNG)</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="max-w-6xl mx-auto space-y-12">
+
+    <!-- ===================================================================== -->
+    <!-- POSTER 1: STUDENT COMPLETE USER MANUAL (คู่มือนักเรียนฉบับครบทุกกิจกรรม) -->
+    <!-- ===================================================================== -->
+    <div id="studentManualPoster" class="poster-card bg-white rounded-[2rem] border-4 border-sky-300 overflow-hidden">
+      <!-- Poster Header -->
+      <div class="bg-gradient-to-r from-sky-600 via-indigo-600 to-purple-600 p-6 sm:p-8 text-white relative overflow-hidden">
+        <div class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white/20 backdrop-blur-xs text-white border border-white/30 mb-2">
+              🎒 COMPLETE STUDENT GUIDE • คู่มือการใช้งานสำหรับน้องๆ นักเรียน (ครบทุกกิจกรรม)
+            </span>
+            <h2 class="font-heading font-black text-2xl sm:text-4xl tracking-tight">
+              เส้นทางกิจกรรม Inspire Your Dream Workshop & Lesson Plan Studio
+            </h2>
+            <p class="text-xs sm:text-sm text-sky-100 mt-1">
+              ตั้งแต่ลงทะเบียน ➔ What is a teacher? ➔ Teacher's duties ➔ Schooltopia ➔ ออกแบบแผนการสอน ➔ รับการ์ดที่ระลึก
+            </p>
+          </div>
+          <div class="bg-white/15 backdrop-blur-md border border-white/25 rounded-2xl p-3.5 text-center shrink-0">
+            <div class="text-2xl sm:text-3xl">📱✨</div>
+            <div class="text-[11px] font-bold text-white mt-0.5">ทำผ่านมือถือตามจังหวะวิทยากร</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6 Complete Activity Cards Grid -->
+      <div class="p-6 sm:p-8 bg-gradient-to-b from-sky-50/40 via-white to-purple-50/30">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+
+          <!-- PANEL 1: PHASE 0 -->
+          <div class="rounded-3xl bg-white border-2 border-sky-200 p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="w-9 h-9 rounded-2xl bg-sky-600 text-white font-heading font-black text-base flex items-center justify-center shadow-sm">
+                  1
+                </span>
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-100 text-sky-800 border border-sky-200">
+                  Phase 0: ลงทะเบียน & KWL
+                </span>
+              </div>
+              <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+                🚪 เข้าห้องเรียน • เลือกโซน • KWL (K & W)
+              </h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                <li>🔹 <strong>สเต็ป 1 (รหัสห้อง):</strong> กรอกรหัสห้องเรียน (เช่น <code class="bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded font-bold">EDU69</code>)</li>
+                <li>🔹 <strong>สเต็ป 2 (ข้อมูล & โซน):</strong> พิมพ์ชื่อเล่น ชั้นเรียน และเลือก <strong>โซนที่นั่ง (Zone 1–4)</strong> ให้ตรงกับกลุ่มของตนเอง</li>
+                <li>🔹 <strong>สเต็ป 3 (ใบงาน KWL):</strong>
+                  <br>• <strong>ช่อง K (What I Know):</strong> รู้อะไรเกี่ยวกับอาชีพครูบ้าง?
+                  <br>• <strong>ช่อง W (What I Want to Know):</strong> อยากรู้อะไรในค่ายนี้?
+                </li>
+              </ul>
+            </div>
+            <div class="p-2.5 rounded-xl bg-sky-50 border border-sky-100 text-[11px] text-sky-900 font-medium">
+              💡 หากเลือกโซนผิด กดปุ่ม <span class="text-rose-600 font-bold">"🔄 บังคับเริ่มใหม่"</span> มุมขวาบนได้ทันที
+            </div>
+          </div>
+
+          <!-- PANEL 2: PHASE 1 (WHAT IS A TEACHER?) -->
+          <div class="rounded-3xl bg-white border-2 border-indigo-200 p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="w-9 h-9 rounded-2xl bg-indigo-600 text-white font-heading font-black text-base flex items-center justify-center shadow-sm">
+                  2
+                </span>
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                  Phase 1 • Activity 1.1
+                </span>
+              </div>
+              <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+                🖍️ What is a teacher? (ครูคืออะไร?)
+              </h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                <li>🔹 <strong>Step 1 (กระดานชอล์ก):</strong> พิมพ์คำตอบ <em>"ในมุมมองของน้อง ครูคืออะไร?"</em> ส่งขึ้นกระดานหน้าห้อง</li>
+                <li>🔹 <strong>Step 2 (2 รูปแบบบทบาทครู):</strong> เรียนรู้ความต่างระหว่าง:
+                  <br>• 🏛️ <strong>Sage on the Stage:</strong> ครูเป็นศูนย์กลาง เน้นบรรยายหน้าชั้น
+                  <br>• 🧭 <strong>Guide on the Side:</strong> ครูเป็นโค้ชชี้แนะ เน้นให้ผู้เรียนลงมือทำ
+                </li>
+                <li>🔹 <strong>Step 3 (Live Poll):</strong> โหวตว่าครูในโรงเรียนของน้องเป็นแบบไหนมากกว่ากัน?</li>
+                <li>🔹 <strong>Step 4 (ข้อดี-ข้อเสีย):</strong> พิมพ์วิเคราะห์แล้วกดปุ่ม <span class="text-emerald-700 font-bold">🟢 ส่งเป็นข้อดี</span> หรือ <span class="text-rose-600 font-bold">🔴 ส่งเป็นข้อเสีย</span></li>
+              </ul>
+            </div>
+            <div class="p-2.5 rounded-xl bg-indigo-50 border border-indigo-100 text-[11px] text-indigo-900 font-medium">
+              📊 ทุกข้อความและผลโหวตจะแสดงกราฟสดบนจอโปรเจคเตอร์!
+            </div>
+          </div>
+
+          <!-- PANEL 3: PHASE 2 (TEACHER'S DUTIES) -->
+          <div class="rounded-3xl bg-white border-2 border-teal-200 p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="w-9 h-9 rounded-2xl bg-teal-600 text-white font-heading font-black text-base flex items-center justify-center shadow-sm">
+                  3
+                </span>
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-200">
+                  Phase 2 • Activity 1.2
+                </span>
+              </div>
+              <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+                ⚖️ Teacher's Duties (ภารกิจครู 8 มิติ)
+              </h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                <li>🔹 <strong>คำถามชวนคิด (ข้อ 1–8):</strong> หน้าจอจะแสดงภารกิจทีละข้อ เช่น งานสอน, งานวัดผล, งานธุรการ/การเงิน/พัสดุ, งานเยี่ยมบ้านดูแลนักเรียน, งานเวรยาม ฯลฯ</li>
+                <li>🔹 <strong>กดโหวตทายคำตอบ:</strong>
+                  <br>• กดปุ่ม <span class="text-rose-600 font-bold">🔴 ไม่ใช่งานครู</span> หรือ <span class="text-emerald-700 font-bold">🟢 คืองานของครู</span>
+                </li>
+                <li>🔹 <strong>เฉลยความจริง (Grand Reveal):</strong> เมื่อโหวตครบ วิทยากรจะกดเฉลยว่า <em>"ความจริงคือ... ทั้ง 8 ข้อคืองานที่ครูไทยต้องทำทั้งหมด!"</em></li>
+              </ul>
+            </div>
+            <div class="p-2.5 rounded-xl bg-teal-50 border border-teal-100 text-[11px] text-teal-900 font-medium">
+              👩‍🏫 ช่วยให้น้องๆ เข้าใจบทบาทและภาระงานจริงของวิชาชีพครูรอบด้าน
+            </div>
+          </div>
+
+          <!-- PANEL 4: PHASE 3 (SCHOOLTOPIA) -->
+          <div class="rounded-3xl bg-white border-2 border-amber-300 p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="w-9 h-9 rounded-2xl bg-amber-500 text-white font-heading font-black text-base flex items-center justify-center shadow-sm">
+                  4
+                </span>
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                  Phase 3 • Activity 2
+                </span>
+              </div>
+              <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+                🏫 Schooltopia (แก้ปัญหาโรงเรียน 4 โซน)
+              </h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                <li>🔹 <strong>อ่านโจทย์ประจำโซน:</strong> แต่ละโซน (Zone 1–4) จะได้รับสถานการณ์ปัญหาในชั้นเรียนที่แตกต่างกัน</li>
+                <li>🔹 <strong>ตอบ 3 คำถามภารกิจเดี่ยว:</strong>
+                  <br>1. <strong>What is the problem?</strong> (ปัญหาคืออะไร?)
+                  <br>2. <strong>What causes the problem?</strong> (สาเหตุมาจากอะไร?)
+                  <br>3. <strong>How to manage this problem?</strong> (วิธีจัดการ/แก้ไข?)
+                </li>
+                <li>🔹 <strong>แลกเปลี่ยนในโซน:</strong> โพสต์ไอเดียขึ้นบอร์ดโซน และกด <strong>❤️ ส่งกำลังใจ</strong> ให้ไอเดียของเพื่อนๆ</li>
+              </ul>
+            </div>
+            <div class="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-950 font-medium">
+              🚀 เมื่ออภิปรายเสร็จ พี่วิทยากรจะปลดล็อกปุ่ม <strong>"ไปที่ Lesson Plan Studio"</strong>
+            </div>
+          </div>
+
+          <!-- PANEL 5: LESSON PLAN STUDIO -->
+          <div class="rounded-3xl bg-white border-2 border-purple-300 p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="w-9 h-9 rounded-2xl bg-purple-600 text-white font-heading font-black text-base flex items-center justify-center shadow-sm">
+                  5
+                </span>
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-900 border border-purple-300">
+                  Lesson Plan Studio (9 ข้อ)
+                </span>
+              </div>
+              <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+                🧭 ออกแบบแผนการสอน 9 ขั้นตอน + 2 จุดพัก
+              </h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                <li>🔹 <strong>ข้อ 1–3:</strong> เลือกวิชา ➔ เลือกชั้น (ป.1–ม.6) ➔ กรอกชื่อครู เวลา & หัวข้อเรื่องที่จะสอน</li>
+                <li>⏸️ <strong>จุดพักที่ 1 (Gate 1):</strong> หยุดรอฟังครูอธิบายหลักการ K-P-A (เมื่อครูปลดล็อกจะทำต่อได้ทันที)</li>
+                <li>🔹 <strong>ข้อ 4–6 (ตั้งเป้า K-P-A):</strong> เขียนเป้าหมาย <strong>K (ความรู้)</strong>, <strong>P (ทักษะ)</strong>, <strong>A (เจตคติ)</strong></li>
+                <li>⏸️ <strong>จุดพักที่ 2 (Gate 2):</strong> หยุดรอฟังครูอธิบายเทคนิคกิจกรรม 3 ขั้นตอน</li>
+                <li>🔹 <strong>ข้อ 7–9 (นำ-สอน-สรุป):</strong> ออกแบบ <strong>ขั้นนำ ➔ ขั้นสอน ➔ ขั้นสรุป</strong> พร้อมเลือกสื่อ แล้วกดส่งแผน!</li>
+              </ul>
+            </div>
+            <div class="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-[11px] text-purple-950 font-medium">
+              🎟️ รับใบ Ticket Overview ดาวน์โหลดเป็น PNG แล้วกด <strong>"กลับสู่ห้องเรียนหลัก"</strong>
+            </div>
+          </div>
+
+          <!-- PANEL 6: PHASE 4 (WELCOME BACK & FINALE) -->
+          <div class="rounded-3xl bg-white border-2 border-emerald-300 p-5 shadow-xs flex flex-col justify-between space-y-3">
+            <div class="space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="w-9 h-9 rounded-2xl bg-emerald-600 text-white font-heading font-black text-base flex items-center justify-center shadow-sm">
+                  6
+                </span>
+                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  Phase 4 • Activity 3 (Finale)
+                </span>
+              </div>
+              <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+                🎓 ต้อนรับกลับ • สรุป KWL (L) • การ์ดที่ระลึก
+              </h3>
+              <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+                <li>🔹 <strong>หน้ายินดีต้อนรับกลับ:</strong> พักรอเพื่อนๆ (หน้าจอจะไม่เด้งข้ามเอง) เมื่อวิทยากรเปิด Phase 4 ปุ่มจะปลดล็อกให้กดไปต่อ</li>
+                <li>🔹 <strong>Step 1 (KWL ช่อง L):</strong> เขียนสรุป <strong>What I Have Learned</strong> (สิ่งที่ได้เรียนรู้จากค่ายวันนี้)</li>
+                <li>🔹 <strong>Step 2 (Live Word Cloud):</strong> ส่ง <strong>3 คำส่งท้าย</strong> สร้างเมฆคำศัพท์รวมพลังบนจอใหญ่</li>
+                <li>🔹 <strong>Step 3 (Digital Story Card 9:16):</strong> รับการ์ดความทรงจำดิจิทัลพร้อมคำอวยพร กดเซฟรูปลงมือถือได้เลย!</li>
+              </ul>
+            </div>
+            <div class="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-950 font-medium">
+              🌟 จบค่ายอย่างสมบูรณ์แบบ พร้อมเก็บทั้งใบแผนการสอนและการ์ดความทรงจำ!
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- POSTER 2: FACILITATOR & BACKSTAGE GUIDE (คู่มือวิทยากรครบทุก Phase)     -->
+    <!-- ===================================================================== -->
+    <div id="teacherManualPoster" class="poster-card bg-white rounded-[2rem] border-4 border-purple-300 overflow-hidden">
+      <!-- Poster Header -->
+      <div class="bg-gradient-to-r from-purple-900 via-indigo-900 to-slate-900 p-6 sm:p-8 text-white relative overflow-hidden">
+        <div class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40 mb-2">
+              🎛️ COMPLETE FACILITATOR & BACKSTAGE GUIDE • คู่มือควบคุมระบบสำหรับวิทยากรและทีมงาน
+            </span>
+            <h2 class="font-heading font-black text-2xl sm:text-4xl tracking-tight">
+              คู่มือการควบคุมห้องเรียน Backstage ทั้ง 5 Phases & Lesson Plan Studio
+            </h2>
+            <p class="text-xs sm:text-sm text-purple-200 mt-1">
+              ซิงค์ข้อมูลข้ามเครื่องแบบ Real-time • คุมได้จากทุกอุปกรณ์ • แยกจอโปรเจคเตอร์อิสระ
+            </p>
+          </div>
+          <div class="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl px-4 py-3 text-center shrink-0">
+            <div class="text-xs text-purple-200 font-semibold">รหัสผ่าน Admin & จุดพักครู</div>
+            <div class="font-heading font-black text-2xl text-amber-300 tracking-widest mt-0.5">0000</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6 Facilitator Control Panels -->
+      <div class="p-6 sm:p-8 bg-gradient-to-b from-purple-50/40 via-white to-slate-50">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+
+          <!-- ADMIN PANEL 1 -->
+          <div class="rounded-3xl bg-white border-2 border-purple-200 p-5 shadow-xs space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="w-9 h-9 rounded-2xl bg-purple-700 text-white font-heading font-black text-base flex items-center justify-center">
+                1
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-900">
+                Setup & Phase 0 (Lobby/KWL)
+              </span>
+            </div>
+            <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+              🚪 สร้างห้อง • เปิดจอแยก • เช็คชื่อ KWL
+            </h3>
+            <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+              <li>• กดแท็บ <strong>"💻 แท็บ Admin"</strong> แล้วใส่รหัส <strong>0000</strong></li>
+              <li>• สร้างห้องเรียนใหม่ หรือเลือกห้องที่มีอยู่ (ห้องจะเด้งซิงค์ไปทุกเครื่อง และสามารถแก้ไข/ลบถาวรได้)</li>
+              <li>• กดปุ่ม <strong>"📽️ เปิดจอโปรเจกเตอร์ ↗"</strong> เพื่อเปิดหน้าจอแสดงผลแยกใน Tab ใหม่ขึ้นจอใหญ่</li>
+              <li>• ดูจำนวนนักเรียนที่เข้าห้องแต่ละโซน และดูโพสต์อิท <strong>KWL (K & W)</strong> สดบนจอ</li>
+            </ul>
+          </div>
+
+          <!-- ADMIN PANEL 2 -->
+          <div class="rounded-3xl bg-white border-2 border-indigo-200 p-5 shadow-xs space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="w-9 h-9 rounded-2xl bg-indigo-600 text-white font-heading font-black text-base flex items-center justify-center">
+                2
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-900">
+                คุม Phase 1: What is a teacher?
+              </span>
+            </div>
+            <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+              🖍️ ควบคุม 4 สเต็ปย่อยของบทบาทครู
+            </h3>
+            <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+              <li>• กดเปลี่ยนเข้าสู่ <strong>Phase 1</strong> แล้วกดสลับ 4 สเต็ปย่อยจาก Backstage:</li>
+              <li>1) <strong>Step 1 (Open Question):</strong> รับคำตอบขึ้นกระดานชอล์ก</li>
+              <li>2) <strong>Step 2 (Reveal 2 Models):</strong> แสดงการ์ดเปรียบเทียบ <em>Sage on the Stage</em> vs <em>Guide on the Side</em></li>
+              <li>3) <strong>Step 3 (Live Poll):</strong> เปิดโหวตสำรวจโรงเรียนจริง แสดงกราฟแท่งสด</li>
+              <li>4) <strong>Step 4 (Pros & Cons):</strong> กดสลับโหมดรับข้อดี-ข้อเสียระหว่าง <strong>Sage</strong> และ <strong>Guide</strong></li>
+            </ul>
+          </div>
+
+          <!-- ADMIN PANEL 3 -->
+          <div class="rounded-3xl bg-white border-2 border-teal-200 p-5 shadow-xs space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="w-9 h-9 rounded-2xl bg-teal-600 text-white font-heading font-black text-base flex items-center justify-center">
+                3
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-100 text-teal-900">
+                คุม Phase 2: Teacher's Duties
+              </span>
+            </div>
+            <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+              ⚖️ ควบคุมโหวตภารกิจครู 8 มิติ & เฉลย
+            </h3>
+            <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+              <li>• กดเปลี่ยนเข้าสู่ <strong>Phase 2</strong></li>
+              <li>• กดเลือก <strong>ข้อคำถามที่ 1 ถึง 8</strong> (หรือกดปุ่มข้อถัดไป) เพื่อให้นักเรียนโหวต <em>"คืองานของครู"</em> หรือ <em>"ไม่ใช่งานครู"</em></li>
+              <li>• ดูเปอร์เซ็นต์ผลโหวตเปรียบเทียบแบบ Real-time บนจอโปรเจคเตอร์</li>
+              <li>• เมื่อครบแล้ว กดปุ่ม <strong>"🎉 เฉลยความจริง (Reveal All 8)"</strong> หน้าต่างเฉลยจะเด้งขึ้นพร้อมกัน!</li>
+            </ul>
+          </div>
+
+          <!-- ADMIN PANEL 4 -->
+          <div class="rounded-3xl bg-white border-2 border-amber-300 p-5 shadow-xs space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="w-9 h-9 rounded-2xl bg-amber-500 text-white font-heading font-black text-base flex items-center justify-center">
+                4
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900">
+                คุม Phase 3: Schooltopia
+              </span>
+            </div>
+            <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+              🏫 ดูไอเดีย 4 โซน & ปลดล็อกเข้าแผนการสอน
+            </h3>
+            <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+              <li>• กดเปลี่ยนเข้าสู่ <strong>Phase 3 (Schooltopia)</strong></li>
+              <li>• บนจอโปรเจคเตอร์สามารถกดดูไอเดีย <em>Problem - Cause - Solution</em> ของน้องๆ แยกตาม <strong>Zone 1, 2, 3, 4</strong></li>
+              <li>• ระหว่างนี้นักเรียนจะยังกดเข้าหน้าแผนการสอนไม่ได้ (เพื่อให้อภิปรายในกลุ่มก่อน)</li>
+              <li>• เมื่อพร้อมแล้ว กดปุ่ม <strong>"🔓 ปลดล็อกปุ่มไป Lesson Plan Studio"</strong> ใน Backstage!</li>
+            </ul>
+          </div>
+
+          <!-- ADMIN PANEL 5 -->
+          <div class="rounded-3xl bg-white border-2 border-rose-300 p-5 shadow-xs space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="w-9 h-9 rounded-2xl bg-rose-600 text-white font-heading font-black text-base flex items-center justify-center">
+                5
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-900">
+                คุม Lesson Plan Gates & Recall
+              </span>
+            </div>
+            <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+              🔓 ปลดล็อก 2 จุดพัก & เรียกกลับห้องหลัก
+            </h3>
+            <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+              <li>• <strong>วิธีให้เครื่องครูไปต่อก่อน:</strong> ที่หน้าจุดพัก เครื่องครูใส่รหัส <strong>0000</strong> เพื่อกดข้ามไปเปิดหน้า K-P-A หรือ นำ-สอน-สรุป สาธิตบนจอก่อนได้</li>
+              <li>• <strong>วิธีปลดล็อกให้เด็กทั้งห้อง:</strong> กดปุ่มใน Backstage:
+                <br>1) <strong>"🔓 ปลดล็อก K-P-A (ข้อ 4–6)"</strong>
+                <br>2) <strong>"🔓 ปลดล็อก นำ-สอน-สรุป (Part 2)"</strong>
+              </li>
+              <li>• เมื่อหมดเวลาทำแผน กดปุ่ม <strong>"📢 เรียกนักเรียนกลับห้องหลัก"</strong> เพื่อส่งแบนเนอร์แจ้งเตือน</li>
+            </ul>
+          </div>
+
+          <!-- ADMIN PANEL 6 -->
+          <div class="rounded-3xl bg-white border-2 border-emerald-300 p-5 shadow-xs space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="w-9 h-9 rounded-2xl bg-emerald-600 text-white font-heading font-black text-base flex items-center justify-center">
+                6
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-900">
+                คุม Phase 4: Finale & ปิดค่าย
+              </span>
+            </div>
+            <h3 class="font-heading font-bold text-base sm:text-lg text-slate-900">
+              🏁 ปลดล็อก KWL (L) • Word Cloud • พิธีปิด
+            </h3>
+            <ul class="text-xs text-slate-600 space-y-1.5 leading-relaxed">
+              <li>• กดเปลี่ยนเข้าสู่ <strong>Phase 4</strong> (ปุ่มบนหน้าต้อนรับกลับของเด็กจะปลดล็อกให้เด็กกดเข้าสู่กิจกรรมสรุป)</li>
+              <li>• สลับ 3 สเต็ปย่อยใน Backstage:
+                <br>1) <strong>Step 1:</strong> กระดานสรุป KWL ช่อง L (เปรียบเทียบ K-W-L)
+                <br>2) <strong>Step 2:</strong> Live Word Cloud (เลือกเปลี่ยนหัวข้อคำถามได้)
+                <br>3) <strong>Step 3:</strong> พิธีปิดค่าย จุดพลุฉลอง & แจกการ์ดความทรงจำ 9:16
+              </li>
+            </ul>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    async function downloadPoster(elementId, filename, btnEl) {
+      const target = document.getElementById(elementId);
+      if (!target || typeof html2canvas === 'undefined') return;
+      const originalHtml = btnEl.innerHTML;
+      btnEl.innerHTML = '<span>⏳ กำลังสร้างรูปภาพคมชัด...</span>';
+      btnEl.disabled = true;
+
+      try {
+        const canvas = await html2canvas(target, {
+          scale: 2.5,
+          useCORS: true,
+          backgroundColor: '#ffffff'
+        });
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      } catch (err) {
+        console.error('Export PNG failed:', err);
+        alert('เกิดข้อผิดพลาดในการสร้างรูปภาพ กรุณาลองใหม่อีกครั้ง');
+      } finally {
+        btnEl.innerHTML = originalHtml;
+        btnEl.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
