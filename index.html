@@ -269,7 +269,9 @@
       is_anonymous_mode: false,
       is_presentation_mode: false,
       active_spotlight: null,
-      reset_timestamp: 0
+      reset_timestamp: 0,
+      lp_kpa_unlocked: false,
+      lp_activities_unlocked: false
     };
 
     // Authentic 4 Seating Zones
@@ -455,6 +457,26 @@
     // 2. REAL-TIME STORAGE DATABASE ENGINE
     // =========================================================================
 
+    function areSessionsEqual(listA, listB) {
+      if (!listA || !listB || listA.length !== listB.length) return false;
+      const sortFn = (a, b) => ((a.code || '') + (a.id || '')).localeCompare((b.code || '') + (b.id || ''));
+      const sortedA = [...listA].sort(sortFn);
+      const sortedB = [...listB].sort(sortFn);
+      for (let i = 0; i < sortedA.length; i++) {
+        const a = sortedA[i];
+        const b = sortedB[i];
+        if (
+          (a.code || '').toUpperCase() !== (b.code || '').toUpperCase() ||
+          a.name !== b.name ||
+          a.facilitatorName !== b.facilitatorName ||
+          a.id !== b.id
+        ) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     function useRealtimeClassroomDB() {
       const readStorage = (key, fallback) => {
         try {
@@ -470,8 +492,15 @@
       const [currentSessionId, setCurrentSessionId] = useState(() => readStorage(STORAGE_KEYS.CURRENT_SESSION_ID, DEFAULT_SESSION.id));
 
       const activeSession = useMemo(() => {
-        return sessions.find(s => s.id === currentSessionId) || sessions[0] || DEFAULT_SESSION;
+        return sessions.find(s => s.id === currentSessionId || s.code === currentSessionId)
+          || sessions.find(s => s.code === 'EDU69')
+          || sessions[0]
+          || DEFAULT_SESSION;
       }, [sessions, currentSessionId]);
+
+      const activeRoomCode = useMemo(() => {
+        return (activeSession.code || 'EDU69').toUpperCase();
+      }, [activeSession.code]);
 
       const getSessionKey = useCallback((baseKey) => `${currentSessionId}_${baseKey}`, [currentSessionId]);
 
@@ -565,18 +594,79 @@
           channel.onmessage = () => reloadAll();
         }
 
-        const intervalId = setInterval(reloadAll, 2000);
+        // Only run polling interval if offline (no firestore)
+        let intervalId = null;
+        if (!firestoreDb) {
+          intervalId = setInterval(reloadAll, 3000);
+        }
 
         return () => {
           window.removeEventListener('storage', handleStorageEvent);
           window.removeEventListener('app_storage_local_change', handleLocalEvent);
           if (channel) channel.close();
-          clearInterval(intervalId);
+          if (intervalId) clearInterval(intervalId);
         };
       }, [currentSessionId, reloadAll]);
 
       // =======================================================================
-      // REAL-TIME CLOUD FIRESTORE SYNCHRONIZATION (CROSS-DEVICE: PHONES & PROJECTOR)
+      // 1. ALL ROOMS HUB REALTIME SYNC (Cross-Device Room List Sync)
+      // Independent from active room; stays alive without tearing down
+      // =======================================================================
+      useEffect(() => {
+        if (!firestoreDb) return;
+
+        const unsubAllRooms = firestoreDb.collection('workshop_rooms').onSnapshot(snap => {
+          const cloudRoomsMap = new Map();
+
+          snap.forEach(d => {
+            const data = d.data() || {};
+            if (data.isDeleted === true) return; // Ignore permanently deleted rooms!
+            const code = (data.roomCode || d.id || '').toUpperCase().trim();
+            if (!code) return;
+
+            let sessionObj = data.sessionInfo ? { ...data.sessionInfo } : null;
+            if (!sessionObj) {
+              sessionObj = {
+                id: code === 'EDU69' ? DEFAULT_SESSION.id : 'session_' + code,
+                name: `Workshop ม.6: Inspire Your Dream`,
+                facilitatorName: data.facilitatorName || 'พี่สกาย',
+                code: code,
+                date: new Date().toLocaleDateString('th-TH')
+              };
+            }
+            sessionObj.code = code;
+            if (code === 'EDU69') {
+              sessionObj.id = DEFAULT_SESSION.id;
+            } else if (!sessionObj.id) {
+              sessionObj.id = 'session_' + code;
+            }
+            cloudRoomsMap.set(code, sessionObj);
+          });
+
+          // Always ensure DEFAULT_SESSION (EDU69) exists
+          if (!cloudRoomsMap.has('EDU69')) {
+            cloudRoomsMap.set('EDU69', DEFAULT_SESSION);
+          }
+
+          const cloudRooms = Array.from(cloudRoomsMap.values());
+
+          setSessions(prev => {
+            if (areSessionsEqual(prev, cloudRooms)) {
+              return prev; // No changes - avoid re-renders!
+            }
+            writeStorage(STORAGE_KEYS.SESSIONS, cloudRooms);
+            return cloudRooms;
+          });
+        }, err => console.warn('Cloud rooms sync error:', err));
+
+        return () => {
+          unsubAllRooms();
+        };
+      }, [writeStorage]);
+
+      // =======================================================================
+      // 2. ACTIVE ROOM DATA SYNC (Students, Answers, Posts, WordCloud, Polls, Pulses)
+      // Re-subscribes ONLY when activeRoomCode or currentSessionId actually changes
       // =======================================================================
       useEffect(() => {
         if (!firestoreDb) {
@@ -584,8 +674,7 @@
           return;
         }
 
-        const roomCode = (activeSession.code || 'EDU69').toUpperCase();
-        const roomRef = firestoreDb.collection('workshop_rooms').doc(roomCode);
+        const roomRef = firestoreDb.collection('workshop_rooms').doc(activeRoomCode);
         const sKey = (k) => `${currentSessionId}_${k}`;
 
         setCloudStatus('connecting');
@@ -594,7 +683,14 @@
         const unsubRoom = roomRef.onSnapshot(doc => {
           setCloudStatus('online');
           if (doc.exists) {
-            const data = doc.data();
+            const data = doc.data() || {};
+            // If room was marked deleted on Cloud, switch away to default room immediately
+            if (data.isDeleted === true) {
+              console.warn(`Room ${activeRoomCode} is deleted. Switching to EDU69.`);
+              setCurrentSessionId(DEFAULT_SESSION.id);
+              writeStorage(STORAGE_KEYS.CURRENT_SESSION_ID, DEFAULT_SESSION.id);
+              return;
+            }
             if (data.appState) {
               setAppState(prev => {
                 if (JSON.stringify(prev) !== JSON.stringify(data.appState)) {
@@ -605,14 +701,22 @@
               });
             }
           } else {
-            // First time room creation on cloud
-            roomRef.set({
-              roomCode: roomCode,
-              sessionInfo: activeSession,
-              appState: DEFAULT_APP_STATE,
-              createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
-              updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).catch(() => {});
+            // Doc does not exist on cloud:
+            // DO NOT auto-create non-existent/deleted rooms!
+            if (activeRoomCode !== 'EDU69') {
+              console.warn(`Room ${activeRoomCode} does not exist. Switching to default EDU69.`);
+              setCurrentSessionId(DEFAULT_SESSION.id);
+              writeStorage(STORAGE_KEYS.CURRENT_SESSION_ID, DEFAULT_SESSION.id);
+            } else {
+              // Only seed default room EDU69 on fresh startup
+              roomRef.set({
+                roomCode: 'EDU69',
+                sessionInfo: DEFAULT_SESSION,
+                appState: DEFAULT_APP_STATE,
+                createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+              }, { merge: true }).catch(() => {});
+            }
           }
         }, err => {
           console.warn('Firestore room snapshot error:', err);
@@ -624,48 +728,78 @@
           setCloudStatus('online');
           const list = [];
           snap.forEach(d => list.push(d.data()));
-          setStudents(list);
-          writeStorage(sKey(STORAGE_KEYS.STUDENTS), list);
+          setStudents(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(list)) {
+              writeStorage(sKey(STORAGE_KEYS.STUDENTS), list);
+              return list;
+            }
+            return prev;
+          });
         }, err => console.warn('Students cloud sync error:', err));
 
         // 3. Phase 1 Answers Subcollection Listener
         const unsubP1 = roomRef.collection('phase1_answers').orderBy('timestamp', 'desc').onSnapshot(snap => {
           const list = [];
           snap.forEach(d => list.push(d.data()));
-          setPhase1Answers(list);
-          writeStorage(sKey(STORAGE_KEYS.PHASE_1_ANSWERS), list);
+          setPhase1Answers(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(list)) {
+              writeStorage(sKey(STORAGE_KEYS.PHASE_1_ANSWERS), list);
+              return list;
+            }
+            return prev;
+          });
         }, err => console.warn('P1 cloud sync error:', err));
 
         // 4. Phase 2 Answers Subcollection Listener
         const unsubP2 = roomRef.collection('phase2_answers').onSnapshot(snap => {
           const list = [];
           snap.forEach(d => list.push(d.data()));
-          setPhase2Answers(list);
-          writeStorage(sKey(STORAGE_KEYS.PHASE_2_ANSWERS), list);
+          setPhase2Answers(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(list)) {
+              writeStorage(sKey(STORAGE_KEYS.PHASE_2_ANSWERS), list);
+              return list;
+            }
+            return prev;
+          });
         }, err => console.warn('P2 cloud sync error:', err));
 
         // 5. Phase 3 Posts Subcollection Listener
         const unsubP3 = roomRef.collection('phase3_posts').orderBy('timestamp', 'desc').onSnapshot(snap => {
           const list = [];
           snap.forEach(d => list.push(d.data()));
-          setPhase3Posts(list);
-          writeStorage(sKey(STORAGE_KEYS.PHASE_3_POSTS), list);
+          setPhase3Posts(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(list)) {
+              writeStorage(sKey(STORAGE_KEYS.PHASE_3_POSTS), list);
+              return list;
+            }
+            return prev;
+          });
         }, err => console.warn('P3 cloud sync error:', err));
 
         // 6. Word Cloud Subcollection Listener
         const unsubWC = roomRef.collection('word_clouds').orderBy('timestamp', 'desc').onSnapshot(snap => {
           const list = [];
           snap.forEach(d => list.push(d.data()));
-          setWordCloudEntries(list);
-          writeStorage(sKey(STORAGE_KEYS.WORD_CLOUD), list);
+          setWordCloudEntries(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(list)) {
+              writeStorage(sKey(STORAGE_KEYS.WORD_CLOUD), list);
+              return list;
+            }
+            return prev;
+          });
         }, err => console.warn('WordCloud cloud sync error:', err));
 
         // 7. School Poll Subcollection Listener
         const unsubPoll = roomRef.collection('school_polls').onSnapshot(snap => {
           const list = [];
           snap.forEach(d => list.push(d.data()));
-          setSchoolPollVotes(list);
-          writeStorage(sKey(STORAGE_KEYS.SCHOOL_POLL), list);
+          setSchoolPollVotes(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(list)) {
+              writeStorage(sKey(STORAGE_KEYS.SCHOOL_POLL), list);
+              return list;
+            }
+            return prev;
+          });
         }, err => console.warn('Poll cloud sync error:', err));
 
         // 8. Pulses Subcollection Listener
@@ -675,8 +809,13 @@
             const data = d.data();
             if (data.studentId) map[data.studentId] = data;
           });
-          setStudentPulses(map);
-          writeStorage(STORAGE_KEYS.STUDENTS_PULSE, map);
+          setStudentPulses(prev => {
+            if (JSON.stringify(prev) !== JSON.stringify(map)) {
+              writeStorage(STORAGE_KEYS.STUDENTS_PULSE, map);
+              return map;
+            }
+            return prev;
+          });
         }, err => console.warn('Pulses cloud sync error:', err));
 
         return () => {
@@ -689,7 +828,7 @@
           unsubPoll();
           unsubPulses();
         };
-      }, [currentSessionId, activeSession, writeStorage]);
+      }, [activeRoomCode, currentSessionId, writeStorage]);
 
       // Mutation methods (Optimistic Local UI + Background Cloud Sync)
       const updateAppState = useCallback((updates) => {
@@ -709,30 +848,122 @@
       }, [appState, activeSession, getSessionKey, writeStorage]);
 
       const createSession = useCallback((sessionName, facilitatorName, code) => {
+        const roomCode = (code || 'EDU' + Math.floor(10 + Math.random() * 90)).toUpperCase().trim();
         const newSession = {
-          id: 'session_' + Date.now(),
+          id: 'session_' + roomCode,
           name: sessionName.trim(),
           facilitatorName: facilitatorName.trim() || 'พี่สกาย',
-          code: (code || 'EDU' + Math.floor(10 + Math.random() * 90)).toUpperCase(),
+          code: roomCode,
           date: new Date().toLocaleDateString('th-TH')
         };
-        const updated = [...sessions, newSession];
+        const updated = [...sessions.filter(s => (s.code || '').toUpperCase() !== roomCode), newSession];
         setSessions(updated);
         setCurrentSessionId(newSession.id);
         writeStorage(STORAGE_KEYS.SESSIONS, updated);
         writeStorage(STORAGE_KEYS.CURRENT_SESSION_ID, newSession.id);
 
         if (firestoreDb) {
-          firestoreDb.collection('workshop_rooms').doc(newSession.code).set({
-            roomCode: newSession.code,
+          firestoreDb.collection('workshop_rooms').doc(roomCode).set({
+            roomCode: roomCode,
             sessionInfo: newSession,
             appState: DEFAULT_APP_STATE,
             createdAt: window.firebase.firestore.FieldValue.serverTimestamp(),
             updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
-          }).catch(e => console.warn('Cloud createSession error:', e));
+          }, { merge: true }).catch(e => console.warn('Cloud createSession error:', e));
         }
         return newSession;
       }, [sessions, writeStorage]);
+
+      const updateSession = useCallback((sessionId, updates) => {
+        const oldSession = sessions.find(s => s.id === sessionId || s.code === sessionId);
+        const oldCode = (oldSession?.code || '').toUpperCase().trim();
+        const newCode = (updates.code || oldSession?.code || 'EDU69').toUpperCase().trim();
+
+        const updated = sessions.map(s => {
+          if (s.id === sessionId || s.code === sessionId) {
+            return {
+              ...s,
+              ...updates,
+              code: newCode
+            };
+          }
+          return s;
+        });
+        setSessions(updated);
+        writeStorage(STORAGE_KEYS.SESSIONS, updated);
+
+        const target = updated.find(s => s.id === sessionId || s.code === sessionId || s.code === newCode);
+        if (firestoreDb && target) {
+          firestoreDb.collection('workshop_rooms').doc(newCode).set({
+            sessionInfo: target,
+            roomCode: newCode,
+            updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true }).catch(e => console.warn('Cloud updateSession error:', e));
+
+          // If code was changed, delete old room doc from Firestore
+          if (oldCode && oldCode !== newCode) {
+            firestoreDb.collection('workshop_rooms').doc(oldCode).delete().catch(() => {});
+          }
+        }
+      }, [sessions, writeStorage]);
+
+      const deleteSession = useCallback((sessionId) => {
+        if (sessions.length <= 1) {
+          alert('ไม่สามารถลบห้องกิจกรรมห้องสุดท้ายได้ครับ');
+          return;
+        }
+        const target = sessions.find(s => s.id === sessionId || s.code === sessionId);
+        if (!target) return;
+
+        const targetCode = (target.code || '').toUpperCase().trim();
+        if (targetCode === 'EDU69') {
+          alert('ไม่สามารถลบห้องหลัก (EDU69) ได้ครับ สามารถสร้างห้องใหม่และสลับไปใช้ห้องอื่นได้');
+          return;
+        }
+
+        const updated = sessions.filter(s => s.id !== sessionId && s.code !== sessionId && (s.code || '').toUpperCase() !== targetCode);
+        setSessions(updated);
+        writeStorage(STORAGE_KEYS.SESSIONS, updated);
+
+        // If active session was deleted, switch to the first remaining session
+        if (currentSessionId === target.id || (activeSession && activeSession.code === targetCode)) {
+          const nextSession = updated[0];
+          setCurrentSessionId(nextSession.id);
+          writeStorage(STORAGE_KEYS.CURRENT_SESSION_ID, nextSession.id);
+        }
+
+        // Clean up all local storage keys for this room
+        try {
+          const sPrefix = `${target.id}_`;
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith(sPrefix) || key.includes(targetCode)) {
+              localStorage.removeItem(key);
+            }
+          });
+        } catch (e) {}
+
+        if (firestoreDb && targetCode) {
+          const rRef = firestoreDb.collection('workshop_rooms').doc(targetCode);
+          // 1. Mark as permanently deleted first (informs all active listeners across devices immediately)
+          rRef.set({
+            isDeleted: true,
+            deletedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true }).then(() => {
+            // 2. Batch clean all subcollections
+            ['students', 'phase1_answers', 'phase2_answers', 'phase3_posts', 'word_clouds', 'school_polls', 'pulses'].forEach(col => {
+              rRef.collection(col).get().then(snap => {
+                const batch = firestoreDb.batch();
+                snap.forEach(d => batch.delete(d.ref));
+                return batch.commit();
+              }).catch(() => {});
+            });
+            // 3. Delete the doc itself
+            return rRef.delete();
+          })
+          .then(() => console.log(`Permanently deleted room ${targetCode} from cloud`))
+          .catch(e => console.warn('Cloud deleteSession error:', e));
+        }
+      }, [sessions, currentSessionId, activeSession, writeStorage]);
 
       const updateSessionFacilitator = useCallback((name) => {
         const updated = sessions.map(s => s.id === currentSessionId ? { ...s, facilitatorName: name } : s);
@@ -1140,6 +1371,8 @@
         currentSessionId,
         setCurrentSessionId,
         createSession,
+        updateSession,
+        deleteSession,
         updateSessionFacilitator,
         appState,
         updateAppState,
@@ -1368,6 +1601,70 @@
     }
 
     // =========================================================================
+    // 3.5. ADMIN PASSCODE MODAL (PIN "0000")
+    // =========================================================================
+
+    function AdminPasscodeModal({ onUnlock, onCancel }) {
+      const [pin, setPin] = useState('');
+      const [error, setError] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (pin === '0000') {
+          sessionStorage.setItem('cmu_admin_auth', 'true');
+          onUnlock();
+        } else {
+          setError('รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง');
+          setPin('');
+        }
+      };
+
+      return ReactDOM.createPortal(
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 sm:p-8 shadow-2xl border-4 border-purple-300 text-center space-y-4 animate-cute-pop">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-3xl text-white shadow-md">
+              🔐
+            </div>
+            <div>
+              <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                เข้าสู่ระบบผู้ดูแล (Admin Backstage)
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                กรุณากรอกรหัสผ่าน 4 หลัก เพื่อป้องกันนักเรียนเข้าถึงแผงควบคุม
+              </p>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <input
+                type="password"
+                maxLength={4}
+                autoFocus
+                placeholder="••••"
+                value={pin}
+                onChange={e => { setPin(e.target.value); setError(''); }}
+                className="w-full py-3 text-center text-2xl font-bold tracking-[0.5em] rounded-2xl border-2 border-purple-300 focus:border-purple-600 outline-hidden bg-purple-50/50"
+              />
+              {error && <p className="text-rose-500 text-xs font-bold">{error}</p>}
+              <button
+                type="submit"
+                className="w-full py-3 rounded-2xl font-heading font-bold text-sm text-white bg-purple-600 hover:bg-purple-700 shadow-md transition cursor-pointer"
+              >
+                ยืนยันรหัสผ่าน 🚀
+              </button>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition cursor-pointer"
+              >
+                ← ยกเลิกและกลับสู่หน้าจอนักเรียน
+              </button>
+            </form>
+          </div>
+        </div>,
+        document.body
+      );
+    }
+
+    // =========================================================================
     // 4. TOP NAVIGATION BAR
     // =========================================================================
 
@@ -1428,12 +1725,15 @@
 
               {(isAdmin || isPresenter) && (
                 <button
-                  onClick={onTogglePresentation}
+                  onClick={() => {
+                    const room = encodeURIComponent(activeSession?.code || 'EDU69');
+                    window.open(`./index.html?role=presenter&room=${room}`, '_blank');
+                  }}
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 transition cursor-pointer"
-                  title="สลับโหมดนำเสนอขึ้นโปรเจกเตอร์"
+                  title="เปิดจอแสดงผลโปรเจกเตอร์ในหน้าต่างใหม่ (New Tab)"
                 >
                   <span>📽️</span>
-                  <span className="hidden sm:inline">โหมดโปรเจกเตอร์</span>
+                  <span className="hidden sm:inline">เปิดจอโปรเจกเตอร์ ↗</span>
                 </button>
               )}
 
@@ -1977,14 +2277,14 @@
                         grade: s.grade || 'ม.6', 
                         zone: s.zone 
                       })}
-                      className="p-4 rounded-2xl bg-slate-900 border border-purple-500/40 cursor-pointer hover:border-purple-400 hover:scale-[1.02] transition shadow-md"
+                      className="p-5 rounded-3xl bg-slate-900 border-2 border-purple-500/50 cursor-pointer hover:border-amber-400 hover:scale-[1.02] transition shadow-lg flex flex-col justify-between"
                     >
-                      <p className="text-sm sm:text-base md:text-lg font-bold text-amber-200 line-clamp-4 leading-relaxed">
+                      <p className="text-base sm:text-lg md:text-xl font-black text-amber-300 leading-relaxed line-clamp-4">
                         "{s.kwl.whatIHaveLearned}"
                       </p>
-                      <div className="mt-3 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
-                        <span>{isAnonymous ? 'น้อง ม.6' : s.name}</span>
-                        <span className="text-[10px] bg-purple-950/70 text-purple-300 px-2 py-0.5 rounded-full border border-purple-800/40">โซน {s.zone}</span>
+                      <div className="mt-4 pt-2.5 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                        <span className="font-medium text-slate-300">น้อง {isAnonymous ? 'ม.6' : s.name}</span>
+                        <span className="text-[10px] bg-purple-950 text-purple-300 px-2.5 py-0.5 rounded-full border border-purple-800/60 font-semibold">โซน {s.zone}</span>
                       </div>
                     </div>
                   ))}
@@ -2095,7 +2395,7 @@
     // =========================================================================
 
     function AdminView({ db, onEnterPresentation }) {
-      const { appState, activeSession, sessions, createSession, setCurrentSessionId, updateSessionFacilitator, updateAppState, resetSessionData, exportSessionDataAsJson, studentPulses, students } = db;
+      const { appState, activeSession, sessions, createSession, updateSession, deleteSession, setCurrentSessionId, updateSessionFacilitator, updateAppState, resetSessionData, exportSessionDataAsJson, studentPulses, students } = db;
       const currentPhase = appState.current_phase || 0;
       const [confirmReset, setConfirmReset] = useState(false);
       const [showSessionModal, setShowSessionModal] = useState(false);
@@ -2264,11 +2564,15 @@
               {/* Utility Actions */}
               <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
                 <button
-                  onClick={onEnterPresentation}
+                  onClick={() => {
+                    const room = encodeURIComponent(activeSession?.code || 'EDU69');
+                    window.open(`./index.html?role=presenter&room=${room}`, '_blank');
+                  }}
                   className="px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                  title="เปิดหน้าจอฉายโปรเจกเตอร์ในแท็บใหม่"
                 >
                   <span>📽️</span>
-                  <span>เปิดโหมดโปรเจกเตอร์</span>
+                  <span>เปิดจอโปรเจกเตอร์ (New Tab) ↗</span>
                 </button>
 
                 <button
@@ -2350,6 +2654,8 @@
               onClose={() => setShowSessionModal(false)}
               onSelectSession={(id) => { setCurrentSessionId(id); setShowSessionModal(false); }}
               onCreateSession={(name, host, code) => { createSession(name, host, code); setShowSessionModal(false); }}
+              onUpdateSession={updateSession}
+              onDeleteSession={deleteSession}
               onExport={exportSessionDataAsJson}
             />
           )}
@@ -2357,16 +2663,53 @@
       );
     }
 
-    // --- Redesigned 3-Card Session Manage Modal ---
-    function SessionManageModal({ sessions, activeSession, students, onClose, onSelectSession, onCreateSession, onExport }) {
+    // --- Redesigned Multi-Session Hub Modal with Realtime Multi-Device CRUD ---
+    function SessionManageModal({ sessions, activeSession, students, onClose, onSelectSession, onCreateSession, onUpdateSession, onDeleteSession, onExport }) {
       const [name, setName] = useState('');
       const [host, setHost] = useState(activeSession.facilitatorName || 'พี่สกาย');
       const [code, setCode] = useState('');
+      const [editingId, setEditingId] = useState(null);
+      const [editName, setEditName] = useState('');
+      const [editHost, setEditHost] = useState('');
+      const [editCode, setEditCode] = useState('');
 
       const handleCreate = (e) => {
         e.preventDefault();
         if (name.trim()) {
           onCreateSession(name, host || 'พี่สกาย', code);
+          setName('');
+          setCode('');
+        }
+      };
+
+      const startEdit = (s, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setEditingId(s.id || s.code);
+        setEditName(s.name || '');
+        setEditHost(s.facilitatorName || '');
+        setEditCode(s.code || '');
+      };
+
+      const handleSaveEdit = (sId, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (editName.trim() && onUpdateSession) {
+          onUpdateSession(sId, {
+            name: editName.trim(),
+            facilitatorName: editHost.trim() || 'พี่สกาย',
+            code: (editCode.trim() || 'EDU69').toUpperCase()
+          });
+        }
+        setEditingId(null);
+      };
+
+      const handleDelete = (sId, sName, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (confirm(`คุณต้องการลบห้องกิจกรรม "${sName}" ใช่หรือไม่?\n(ระบบจะลบออกจาก Cloud และเครื่องอื่นด้วย)`)) {
+          if (editingId === sId) setEditingId(null);
+          if (onDeleteSession) onDeleteSession(sId);
         }
       };
 
@@ -2376,9 +2719,12 @@
             <div className="flex items-center justify-between pb-4 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <span className="text-2xl">🚪</span>
-                <h3 className="font-heading font-extrabold text-lg sm:text-xl text-slate-900">
-                  ระบบจัดการห้องกิจกรรม Workshop (Multi-Session Hub)
-                </h3>
+                <div>
+                  <h3 className="font-heading font-extrabold text-lg sm:text-xl text-slate-900">
+                    ระบบจัดการห้องกิจกรรม Workshop (Multi-Session Hub)
+                  </h3>
+                  <p className="text-[11px] text-slate-500">ซิงค์แบบเรียลไทม์ข้ามเครื่อง • สร้าง แก้ไข และลบห้องได้ทันที</p>
+                </div>
               </div>
               <button onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold hover:bg-slate-200 cursor-pointer">✕</button>
             </div>
@@ -2442,7 +2788,7 @@
             {/* Card 3: Switch Past Sessions & Export */}
             <div className="pt-4 border-t border-slate-200">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-xs font-bold text-slate-800">ประวัติห้องกิจกรรมทั้งหมด ({sessions.length} ห้อง):</h4>
+                <h4 className="text-xs font-bold text-slate-800">ห้องกิจกรรมทั้งหมด ({sessions.length} ห้อง):</h4>
                 <button
                   type="button"
                   onClick={onExport}
@@ -2453,22 +2799,105 @@
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-48 overflow-y-auto custom-scroll pr-1">
-                {sessions.map(s => (
-                  <div
-                    key={s.id}
-                    onClick={() => onSelectSession(s.id)}
-                    className={`p-3 rounded-2xl border text-xs cursor-pointer flex items-center justify-between transition ${
-                      s.id === activeSession.id ? 'border-sky-500 bg-sky-50 text-sky-950 font-bold ring-2 ring-sky-200' : 'border-slate-200 hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <div>
-                      <p className="font-bold">{s.name}</p>
-                      <p className="text-[11px] text-slate-500">ผู้ดูแล: {s.facilitatorName} • รหัส: <span className="font-code font-bold tracking-wide">{s.code}</span> • วันที่: {s.date || '-'}</p>
+              <div className="space-y-2.5 max-h-56 overflow-y-auto custom-scroll pr-1">
+                {sessions.map(s => {
+                  const sId = s.id || s.code;
+                  const isCurrent = (s.id === activeSession.id || s.code === activeSession.code);
+                  const isEditing = editingId === sId;
+
+                  return (
+                    <div
+                      key={sId}
+                      onClick={() => {
+                        if (isEditing) return;
+                        onSelectSession(s.id);
+                      }}
+                      className={`p-3 rounded-2xl border text-xs transition ${
+                        isCurrent
+                          ? 'border-sky-500 bg-sky-50 text-sky-950 font-bold ring-2 ring-sky-200'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-700 cursor-pointer'
+                      }`}
+                    >
+                      {isEditing ? (
+                        <div className="space-y-2" onClick={e => e.stopPropagation()}>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={e => setEditName(e.target.value)}
+                              className="px-2.5 py-1.5 rounded-xl border border-sky-400 bg-white text-xs font-bold sm:col-span-2"
+                              placeholder="ชื่อห้อง"
+                            />
+                            <input
+                              type="text"
+                              value={editCode}
+                              onChange={e => setEditCode(e.target.value)}
+                              className="px-2.5 py-1.5 rounded-xl border border-sky-400 bg-white text-xs font-code uppercase"
+                              placeholder="รหัสห้อง"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <input
+                              type="text"
+                              value={editHost}
+                              onChange={e => setEditHost(e.target.value)}
+                              className="px-2.5 py-1.5 rounded-xl border border-sky-400 bg-white text-xs flex-1"
+                              placeholder="ผู้ดูแล"
+                            />
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={e => handleSaveEdit(s.id, e)}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer shadow-xs"
+                              >
+                                บันทึก ✓
+                              </button>
+                              <button
+                                type="button"
+                                onClick={e => { e.stopPropagation(); setEditingId(null); }}
+                                className="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs cursor-pointer"
+                              >
+                                ยกเลิก
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-slate-900">{s.name}</p>
+                            <p className="text-[11px] text-slate-500">ผู้ดูแล: {s.facilitatorName} • รหัส: <span className="font-code font-bold tracking-wide text-sky-800">{s.code}</span> • วันที่: {s.date || '-'}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isCurrent && (
+                              <span className="text-sky-600 font-bold text-[11px] bg-sky-100 px-2 py-0.5 rounded-full">
+                                ✓ ใช้งานอยู่
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={e => startEdit(s, e)}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs cursor-pointer"
+                              title="แก้ไขข้อมูลห้อง"
+                            >
+                              ✏️
+                            </button>
+                            {sessions.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={e => handleDelete(s.id, s.name, e)}
+                                className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs cursor-pointer"
+                                title="ลบห้องนี้"
+                              >
+                                🗑️
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    {s.id === activeSession.id && <span className="text-sky-600 font-bold text-xs bg-sky-100 px-2.5 py-1 rounded-full">✓ ใช้งานอยู่</span>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -3088,7 +3517,7 @@
                   Activity 2 : Schooltopia
                 </span>
                 <span className="text-xs text-slate-500 font-medium">
-                  A group of THREE • แสดงความคิดเห็นทั้งหมดของทุกกลุ่ม
+                  ภารกิจเดี่ยว (Individual Challenge) • แสดงไอเดียทั้งหมดของน้องๆ ทุกคน
                 </span>
               </div>
               <h3 className="text-xl sm:text-2xl font-heading font-extrabold text-slate-900 mt-1">
@@ -3097,34 +3526,68 @@
             </div>
 
             {!isPresenter && (
-              <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Remote Unlock: Gate 1 KPA */}
+                <button
+                  onClick={() => {
+                    const next = !appState.lp_kpa_unlocked;
+                    updateAppState({ lp_kpa_unlocked: next });
+                    if (AudioEngine?.playBell) AudioEngine.playBell();
+                  }}
+                  className={`px-3 py-2 rounded-xl font-heading font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer ${
+                    appState.lp_kpa_unlocked
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-300'
+                      : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                  }`}
+                  title="ปลดล็อกช่วงเป้าหมาย K-P-A ใน Lesson Plan Studio ให้ทุกเครื่อง"
+                >
+                  <span>{appState.lp_kpa_unlocked ? '🔓 ปลดล็อก KPA แล้ว' : '🔑 ปลดล็อก KPA ให้ทุกคน'}</span>
+                </button>
+
+                {/* Remote Unlock: Gate 2 Activities */}
+                <button
+                  onClick={() => {
+                    const next = !appState.lp_activities_unlocked;
+                    updateAppState({ lp_activities_unlocked: next });
+                    if (AudioEngine?.playBell) AudioEngine.playBell();
+                  }}
+                  className={`px-3 py-2 rounded-xl font-heading font-bold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer ${
+                    appState.lp_activities_unlocked
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-2 ring-emerald-300'
+                      : 'bg-purple-600 hover:bg-purple-700 text-white'
+                  }`}
+                  title="ปลดล็อกช่วงกิจกรรม (นำ-สอน-สรุป) ใน Lesson Plan Studio ให้ทุกเครื่อง"
+                >
+                  <span>{appState.lp_activities_unlocked ? '🔓 ปลดล็อก กิจกรรมแล้ว' : '🔑 ปลดล็อก นำ-สอน-สรุป ให้ทุกคน'}</span>
+                </button>
+
                 {/* UNLOCK LESSON PLAN BUTTON FOR TEACHER */}
                 <button
                   onClick={toggleUnlockLessonPlan}
-                  className={`px-4 py-2.5 rounded-xl font-heading font-bold text-xs sm:text-sm text-white shadow-md transition flex items-center gap-1.5 cursor-pointer ${
+                  className={`px-3 py-2 rounded-xl font-heading font-bold text-xs text-white shadow-md transition flex items-center gap-1.5 cursor-pointer ${
                     isLessonPlanUnlocked 
-                      ? 'bg-amber-600 hover:bg-amber-700' 
+                      ? 'bg-slate-700 hover:bg-slate-600' 
                       : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700'
                   }`}
                   title="เปิด/ปิดปุ่มทางไป Lesson Plan Studio บนหน้าจอนักเรียน"
                 >
-                  <span>{isLessonPlanUnlocked ? '🔒 ปิดทางไป Lesson Plan' : '🚀 ปลดล็อคปุ่ม Lesson Plan ให้น้องๆ'}</span>
+                  <span>{isLessonPlanUnlocked ? '🔒 ปิดทางไป Lesson Plan' : '🚀 ปลดล็อคปุ่ม Lesson Plan'}</span>
                 </button>
 
                 <button
                   onClick={handleRecallClick}
-                  className="px-4 py-2.5 rounded-xl font-heading font-bold text-xs sm:text-sm text-white bg-slate-800 hover:bg-slate-700 shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-2 rounded-xl font-heading font-bold text-xs text-white bg-slate-800 hover:bg-slate-700 shadow-md transition flex items-center gap-1.5 cursor-pointer"
                   title="ส่งสัญญาณเรียกนักเรียนทุกคนจาก Lesson Plan Studio กลับมาหน้าเว็บหลัก"
                 >
                   <span>📢</span>
-                  <span>เรียกน้องๆ กลับห้องรวม</span>
+                  <span>เรียกน้องๆ กลับ</span>
                 </button>
 
                 <button
                   onClick={() => updateAppState({ current_phase: 4, phase_4_step: 1 })}
-                  className="px-5 py-2.5 rounded-xl font-heading font-bold text-xs sm:text-sm text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 hover:from-emerald-700 shadow-md transition flex items-center gap-2 cursor-pointer"
+                  className="px-4 py-2 rounded-xl font-heading font-bold text-xs text-white bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 hover:from-emerald-700 shadow-md transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  <span>ไป Phase 4: KWL L 🎓</span>
+                  <span>ไป Phase 4 🎓</span>
                 </button>
               </div>
             )}
@@ -3349,11 +3812,11 @@
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5 max-h-[460px] overflow-y-auto custom-scroll pr-1">
                 {students.filter(s => s.kwl?.whatIHaveLearned).map((s, idx) => (
-                  <div key={s.id || idx} className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200">
-                    <p className="font-bold text-sm text-slate-900 leading-relaxed">"{s.kwl.whatIHaveLearned}"</p>
-                    <div className="mt-2.5 pt-2 border-t border-purple-200 flex items-center justify-between text-[11px] text-slate-500">
-                      <span>{s.name}</span>
-                      <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-medium">โซน {s.zone}</span>
+                  <div key={s.id || idx} className="p-4 rounded-2xl bg-purple-50/90 border-2 border-purple-200 flex flex-col justify-between">
+                    <p className="font-bold text-base text-purple-950 leading-relaxed">"{s.kwl.whatIHaveLearned}"</p>
+                    <div className="mt-3 pt-2 border-t border-purple-200 flex items-center justify-between text-xs text-slate-500">
+                      <span className="font-medium text-slate-700">น้อง {s.name}</span>
+                      <span className="text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full font-bold">โซน {s.zone}</span>
                     </div>
                   </div>
                 ))}
@@ -3450,6 +3913,79 @@
       );
     }
 
+    // --- Dedicated Welcome Back Holding Screen for Phase 3 Returnees ---
+    function StudentWelcomeBackHoldingView({ currentStudent, activeSession, currentPhase, onReviewPlan, onProceedToPhase4 }) {
+      const isPhase4Ready = (currentPhase || 0) >= 4;
+
+      return (
+        <div className="glass-card rounded-3xl p-6 sm:p-8 border-2 border-emerald-300 bg-white shadow-xl text-center space-y-5 animate-cute-pop max-w-lg mx-auto">
+          <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-tr from-emerald-400 via-teal-500 to-sky-500 flex items-center justify-center text-4xl shadow-lg shadow-emerald-200 select-none animate-bounce-soft">
+            🌟
+          </div>
+
+          <div>
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 mb-2">
+              <span>✓</span> <span>ส่งแผนการสอนสมบูรณ์แบบเรียบร้อยแล้ว!</span>
+            </span>
+            <h3 className="font-heading font-black text-xl sm:text-2xl text-slate-900 tracking-tight">
+              ยินดีต้อนรับกลับสู่ห้องเรียนหลัก! 🎉
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-600 max-w-sm mx-auto mt-2 leading-relaxed">
+              ยอดเยี่ยมมากครับน้อง <strong className="text-emerald-700 font-bold">{currentStudent?.name || 'คนเก่ง'}</strong>! ระบบบันทึกแผนการสอนของน้องขึ้นสู่ห้องเรียนเรียบร้อยแล้วครับ
+            </p>
+          </div>
+
+          <div className={`p-4 rounded-2xl border text-left space-y-2 text-xs transition-all ${
+            isPhase4Ready ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${isPhase4Ready ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 animate-ping'}`}></span>
+              <span className="font-bold text-slate-900">
+                {isPhase4Ready 
+                  ? '🎉 สัญญาณพร้อมแล้ว: พี่วิทยากรเปิดกิจกรรมสรุปบทเรียนแล้ว!' 
+                  : '📡 สถานะ: กำลังรอเพื่อนๆ และรอสัญญาณเริ่มกิจกรรมสรุปจากพี่วิทยากร...'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600 leading-relaxed">
+              {isPhase4Ready
+                ? 'ระบบปลดล็อกเรียบร้อยแล้วครับ น้องสามารถกดปุ่มด้านล่างเพื่อเริ่มกิจกรรมสรุป KWL ช่อง L ได้เลย (หน้าจอจะไม่เด้งเองอัตโนมัติ เพื่อให้น้องกดเมื่อพร้อมครับ)'
+                : 'พักผ่อนสักครู่จ้า เมื่อพี่วิทยากรเปิดกิจกรรมสรุปบทเรียน (Phase 4: KWL L) ปุ่มด้านล่างจะปลดล็อกให้กดไปต่อได้ทันทีครับ'}
+            </p>
+          </div>
+
+          <div className="pt-2 space-y-2.5">
+            {isPhase4Ready ? (
+              <button
+                type="button"
+                onClick={onProceedToPhase4}
+                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-sky-600 hover:from-emerald-700 text-white font-heading font-extrabold text-sm sm:text-base shadow-lg shadow-emerald-200 hover:shadow-xl active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer animate-cute-pop"
+              >
+                <span>✨ ไปต่อที่กิจกรรมสรุปบทเรียน (KWL L)</span>
+                <span>➔</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="w-full py-3 px-4 rounded-2xl bg-slate-100 text-slate-400 font-heading font-bold text-xs sm:text-sm border-2 border-slate-200 cursor-not-allowed flex items-center justify-center gap-2 select-none"
+              >
+                <span>🔒 รอพี่วิทยากรเปิดกิจกรรมสรุป (KWL L)</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onReviewPlan}
+              className="w-full py-2.5 px-4 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-heading font-bold text-xs shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <span>🎒 เปิดดูแผนการสอนที่ส่งแล้ว (View Overview)</span>
+              <span>↗</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     // =========================================================================
     // 7. STUDENT APPLICATION VIEW (MOBILE FIRST - FIX #4 & #5)
     // =========================================================================
@@ -3468,17 +4004,32 @@
         }
       });
 
+      const isReturnedFromLessonPlan = useMemo(() => {
+        return localStorage.getItem('lesson_plan_submitted_complete') === 'true' || 
+               new URLSearchParams(window.location.search).get('submitted') === 'true';
+      }, []);
+
+      const [hasProceededFromWelcomeBack, setHasProceededFromWelcomeBack] = useState(() => {
+        try {
+          return sessionStorage.getItem('cmu_welcome_back_proceeded') === 'true';
+        } catch (e) {
+          return false;
+        }
+      });
+
+      const handleProceedToPhase4 = () => {
+        try {
+          sessionStorage.setItem('cmu_welcome_back_proceeded', 'true');
+        } catch (e) {}
+        setHasProceededFromWelcomeBack(true);
+      };
+
       const matchedStudent = useMemo(() => {
         if (!currentStudent) return null;
-        // Verify room match if stored
-        const currentRoomCode = (activeSession?.code || 'EDU69').toUpperCase();
-        if (currentStudent.roomCode && currentStudent.roomCode !== currentRoomCode) {
-          return null;
-        }
         return students.find(s => s.id === currentStudent.id) || currentStudent;
-      }, [students, currentStudent, activeSession]);
+      }, [students, currentStudent]);
 
-      // Auto-detect when student has been reset by facilitator or room wiped (Fix #2 & #10)
+      // Auto-detect when student has been reset by facilitator (Explicit Host Reset)
       useEffect(() => {
         if (!currentStudent) return;
         const roomResetTs = appState?.reset_timestamp || 0;
@@ -3490,22 +4041,7 @@
           setCurrentStudent(null);
           return;
         }
-
-        // If cloud is online, and room students list has loaded and current student is confirmed not in it
-        if (db.cloudStatus === 'online' && Array.isArray(students)) {
-          const now = Date.now();
-          const registeredLongEnough = !currentStudent.registeredAt || (now - currentStudent.registeredAt > 5000);
-          if (registeredLongEnough) {
-            const existsInRoom = students.some(s => s.id === currentStudent.id);
-            if (!existsInRoom) {
-              console.log('Student not found in room students list. Returning to registration.');
-              localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
-              localStorage.removeItem('classroom_current_student_session');
-              setCurrentStudent(null);
-            }
-          }
-        }
-      }, [appState?.reset_timestamp, currentStudent, db.cloudStatus, students]);
+      }, [appState?.reset_timestamp, currentStudent]);
 
       // Listen for navbar event trigger
       useEffect(() => {
@@ -3573,6 +4109,9 @@
         try {
           localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
           localStorage.removeItem('classroom_current_student_session');
+          localStorage.removeItem('lesson_plan_submitted_complete');
+          sessionStorage.removeItem('cmu_welcome_back_proceeded');
+          setHasProceededFromWelcomeBack(false);
           if (window.history.pushState) {
             const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
             window.history.pushState({ path: cleanUrl }, '', cleanUrl);
@@ -3595,6 +4134,9 @@
           }
           localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
           localStorage.removeItem('classroom_current_student_session');
+          localStorage.removeItem('lesson_plan_submitted_complete');
+          sessionStorage.removeItem('cmu_welcome_back_proceeded');
+          setHasProceededFromWelcomeBack(false);
           if (AudioEngine?.playPop) AudioEngine.playPop();
           setCurrentStudent(null);
           setShowResetModal(false);
@@ -3605,6 +4147,8 @@
           console.error('Hard reset error:', e);
           localStorage.removeItem(STORAGE_KEYS.CURRENT_STUDENT_SESSION);
           localStorage.removeItem('classroom_current_student_session');
+          localStorage.removeItem('lesson_plan_submitted_complete');
+          sessionStorage.removeItem('cmu_welcome_back_proceeded');
           setCurrentStudent(null);
           setShowResetModal(false);
           window.location.href = window.location.pathname;
@@ -3701,17 +4245,37 @@
                   />
                 )}
                 {currentPhase === 3 && (
-                  <StudentPhase3
-                    db={db}
-                    currentStudent={matchedStudent}
-                  />
+                  (isReturnedFromLessonPlan && !hasProceededFromWelcomeBack) ? (
+                    <StudentWelcomeBackHoldingView
+                      currentStudent={matchedStudent}
+                      activeSession={activeSession}
+                      currentPhase={currentPhase}
+                      onReviewPlan={() => window.open('./lesson-plan.html#overview', '_blank')}
+                      onProceedToPhase4={handleProceedToPhase4}
+                    />
+                  ) : (
+                    <StudentPhase3
+                      db={db}
+                      currentStudent={matchedStudent}
+                    />
+                  )
                 )}
                 {currentPhase === 4 && (
-                  <StudentPhase4
-                    db={db}
-                    currentStudent={matchedStudent}
-                    onLeaveClassroom={handleLeaveClassroom}
-                  />
+                  (isReturnedFromLessonPlan && !hasProceededFromWelcomeBack) ? (
+                    <StudentWelcomeBackHoldingView
+                      currentStudent={matchedStudent}
+                      activeSession={activeSession}
+                      currentPhase={currentPhase}
+                      onReviewPlan={() => window.open('./lesson-plan.html#overview', '_blank')}
+                      onProceedToPhase4={handleProceedToPhase4}
+                    />
+                  ) : (
+                    <StudentPhase4
+                      db={db}
+                      currentStudent={matchedStudent}
+                      onLeaveClassroom={handleLeaveClassroom}
+                    />
+                  )
                 )}
               </>
             )}
@@ -4483,7 +5047,7 @@
       const [problem, setProblem] = useState('');
       const [cause, setCause] = useState('');
       const [solution, setSolution] = useState('');
-      const [role, setRole] = useState('ผู้บันทึกสรุป');
+      const [role] = useState('ผู้แก้ปัญหาเดี่ยว');
       const [toast, setToast] = useState('');
 
       const sameZonePosts = phase3Posts.filter(p => Number(p.zone) === studentZoneId);
@@ -4511,13 +5075,22 @@
       return (
         <div className="space-y-5 view-transition">
           <div className={`rounded-3xl p-5 border-2 shadow-sm ${zoneInfo.colorClass}`}>
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-white/90">
                 Activity 2 • {zoneInfo.situationNumber}
               </span>
-              <span className="text-xs font-semibold opacity-80">
-                A group of THREE
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold opacity-80">
+                  ภารกิจเดี่ยว (Individual Challenge)
+                </span>
+                <a
+                  href={lessonPlanUrl}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-white text-purple-900 hover:bg-purple-50 border border-purple-300 shadow-2xs transition active:scale-95"
+                >
+                  <span>🎒 ไปที่แผนการสอน</span>
+                  <span>➔</span>
+                </a>
+              </div>
             </div>
             <h3 className="text-base sm:text-lg font-heading font-extrabold leading-snug">
               {zoneInfo.title}
@@ -4530,7 +5103,7 @@
           {/* Form */}
           <div className="glass-card rounded-3xl p-5 sm:p-6 border-2 border-sky-200 bg-white shadow-md">
             <h4 className="font-heading font-bold text-sm text-slate-900 mb-3">
-              ✍️ ตอบ 3 ข้อเพื่อแก้ปัญหากลุ่ม (A group of THREE)
+              ✍️ ตอบ 3 ข้อเพื่อแชร์ไอเดียแก้ปัญหา (ภารกิจเดี่ยว)
             </h4>
 
             {toast && (
@@ -4540,25 +5113,6 @@
             )}
 
             <form onSubmit={handleSubmit} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  บทบาทของน้องในกลุ่ม 3 คน:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {['🎯 สังเกตการณ์', '✍️ ผู้บันทึก', '🎤 ตัวแทนพูด'].map(r => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setRole(r)}
-                      className={`py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
-                        role === r ? 'bg-sky-600 text-white border-sky-600' : 'bg-slate-50 text-slate-600 border-slate-200'
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -4742,24 +5296,75 @@
           allowTaint: true,
           backgroundColor: '#090d16'
         }).then(canvas => {
-          const imgUrl = canvas.toDataURL('image/png');
-          setPreviewImage(imgUrl);
+          const fileName = `CMU69_StoryCard_${currentStudent?.name || 'student'}.png`;
 
-          // Try automatic download tag
-          try {
-            const link = document.createElement('a');
-            link.download = `CMU69_StoryCard_${currentStudent?.name || 'student'}.png`;
-            link.href = imgUrl;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          } catch (e) {
-            console.warn('Auto download not supported, preview image is displayed for manual saving');
+          if (canvas.toBlob) {
+            canvas.toBlob((blob) => {
+              if (!blob) {
+                const imgUrl = canvas.toDataURL('image/png');
+                setPreviewImage(imgUrl);
+                setIsDownloading(false);
+                return;
+              }
+              const blobUrl = URL.createObjectURL(blob);
+              setPreviewImage(blobUrl);
+
+              // 1. Try Native Web Share API if supported (e.g. iOS Safari / Android Chrome)
+              if (navigator.share && navigator.canShare) {
+                try {
+                  const file = new File([blob], fileName, { type: 'image/png' });
+                  if (navigator.canShare({ files: [file] })) {
+                    navigator.share({
+                      files: [file],
+                      title: 'Inspire Your Dream - การ์ดความทรงจำ',
+                      text: 'การ์ดความทรงจำ คณะศึกษาศาสตร์ มช.'
+                    }).then(() => {
+                      setIsDownloading(false);
+                      setToast('บันทึกรูปภาพสำเร็จ! 📸');
+                      setTimeout(() => setToast(''), 2500);
+                    }).catch(() => {
+                      setIsDownloading(false);
+                    });
+                    return;
+                  }
+                } catch (e) {
+                  console.log('Web share not supported for files, falling back to download link', e);
+                }
+              }
+
+              // 2. Direct browser download fallback
+              try {
+                const link = document.createElement('a');
+                link.download = fileName;
+                link.href = blobUrl;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              } catch (e) {
+                console.warn('Auto download not supported, preview image is displayed for manual saving');
+              }
+
+              setIsDownloading(false);
+              setToast('สร้างรูปภาพการ์ดเรียบร้อย! 📸');
+              setTimeout(() => setToast(''), 2500);
+            }, 'image/png');
+          } else {
+            const imgUrl = canvas.toDataURL('image/png');
+            setPreviewImage(imgUrl);
+            try {
+              const link = document.createElement('a');
+              link.download = fileName;
+              link.href = imgUrl;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+            } catch (e) {
+              console.warn('Auto download fallback');
+            }
+            setIsDownloading(false);
+            setToast('สร้างรูปภาพการ์ดเรียบร้อย! 📸');
+            setTimeout(() => setToast(''), 2500);
           }
-
-          setIsDownloading(false);
-          setToast('สร้างรูปภาพการ์ดเรียบร้อย! 📸');
-          setTimeout(() => setToast(''), 2500);
         }).catch(err => {
           console.error(err);
           setIsDownloading(false);
@@ -5038,17 +5643,41 @@
                   💡 <strong className="text-white">สำหรับ iPhone / มือถือ:</strong> แตะค้างที่รูปภาพด้านบน แล้วเลือก <strong className="text-amber-300">"บันทึกรูปภาพ" (Save Image)</strong> ได้ทันทีจ้า!
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {typeof navigator !== 'undefined' && navigator.share && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch(previewImage);
+                          const blob = await res.blob();
+                          const file = new File([blob], `CMU69_StoryCard_${currentStudent?.name || 'student'}.png`, { type: 'image/png' });
+                          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                            await navigator.share({
+                              files: [file],
+                              title: 'Inspire Your Dream - การ์ดความทรงจำ',
+                              text: 'การ์ดความทรงจำ คณะศึกษาศาสตร์ มช.'
+                            });
+                          }
+                        } catch (e) {
+                          console.log('Share error', e);
+                        }
+                      }}
+                      className="flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
+                    >
+                      <span>📤 เซฟเข้า Photos / แชร์</span>
+                    </button>
+                  )}
                   <a
                     href={previewImage}
                     download={`CMU69_StoryCard_${currentStudent?.name || 'student'}.png`}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-amber-400 hover:bg-amber-300 text-slate-950 transition flex items-center justify-center gap-1.5"
+                    className="flex-1 min-w-[120px] py-2.5 rounded-xl text-xs font-bold bg-sky-500 hover:bg-sky-400 text-white transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
                   >
                     <span>📥 ดาวน์โหลดไฟล์</span>
                   </a>
                   <button
                     onClick={() => setPreviewImage(null)}
-                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer"
                   >
                     ปิด
                   </button>
@@ -5072,6 +5701,22 @@
       const db = useRealtimeClassroomDB();
 
       const [inPresentationMode, setInPresentationMode] = useState(isPresenter);
+      const [isAdminAuth, setIsAdminAuth] = useState(() => sessionStorage.getItem('cmu_admin_auth') === 'true');
+
+      if (isAdmin && !isAdminAuth) {
+        return (
+          <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+            <AdminPasscodeModal
+              onUnlock={() => setIsAdminAuth(true)}
+              onCancel={() => {
+                const u = new URL(window.location.href);
+                u.searchParams.delete('role');
+                window.location.href = u.toString();
+              }}
+            />
+          </div>
+        );
+      }
 
       return (
         <div className="min-h-screen flex flex-col">

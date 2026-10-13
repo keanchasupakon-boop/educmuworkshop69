@@ -190,35 +190,57 @@ function initWorkshopBridge() {
   setInterval(sendTelemetryPulse, 2500);
 
   // 1. Listen for Facilitator Recall Signal via LocalStorage (Same device)
+  let lastLocalRecallTs = Date.now();
   window.addEventListener('storage', (e) => {
     if (e.key === 'cmu_workshop_recall' && e.newValue) {
       try {
         const recallData = JSON.parse(e.newValue);
-        if (recallData && recallData.active) {
+        if (recallData && recallData.active && (recallData.timestamp || 0) > lastLocalRecallTs) {
+          lastLocalRecallTs = recallData.timestamp || Date.now();
           handleFacilitatorRecall();
         }
       } catch (err) {}
     }
   });
 
-  // 2. Listen for Facilitator Recall & Phase Progression via Cloud Firestore (Cross-device / Phones)
+  // 2. Listen for Facilitator Recall & Gate Remote Unlocks via Cloud Firestore (Cross-device / Phones)
   if (window.FirebaseService) {
-    let lastRecallTs = 0;
+    let lastRecallTs = Date.now(); // Ignore any stale recall sent before this page loaded
     window.FirebaseService.subscribeRoomState(roomCode, (roomData) => {
       if (!roomData) return;
       
-      // If facilitator sent recall signal
+      // Update globally cached room state
+      window._roomAppState = roomData.appState || null;
+
+      // Handle remote unlock for Gate 1 (KPA)
+      if (roomData.appState && roomData.appState.lp_kpa_unlocked) {
+        sessionStorage.setItem('lp_kpa_unlocked', 'true');
+        if (appState.wizardStep === 'gate_kpa') {
+          if (typeof showToast === 'function') {
+            showToast('🔓 คุณครูปลดล็อกช่วง K-P-A แล้ว! ลุยกันเลย...', 'success');
+          }
+          goToWizardStep(4);
+        }
+      }
+
+      // Handle remote unlock for Gate 2 (Activities: นำ-สอน-สรุป)
+      if (roomData.appState && roomData.appState.lp_activities_unlocked) {
+        sessionStorage.setItem('lp_activities_unlocked', 'true');
+        if (appState.wizardStep === 'gate_activities') {
+          if (typeof showToast === 'function') {
+            showToast('🔓 คุณครูปลดล็อกกิจกรรม นำ-สอน-สรุป แล้ว! ลุยกันเลย...', 'success');
+          }
+          goToWizardStep(7);
+        }
+      }
+
+      // If facilitator sent explicit recall signal (only if sent AFTER page loaded)
       if (roomData.recallSignal && roomData.recallSignal.active) {
         const ts = roomData.recallSignal.timestamp || 0;
         if (ts > lastRecallTs) {
           lastRecallTs = ts;
           handleFacilitatorRecall();
         }
-      }
-
-      // If facilitator moved to Phase 4 (Finale / KWL L)
-      if (roomData.appState && roomData.appState.current_phase >= 4) {
-        handleFacilitatorRecall();
       }
     });
   }
@@ -411,23 +433,80 @@ window.startWizard = function(startAtStep = 1) {
   showView('wizard');
 };
 
+function isKpaUnlocked() {
+  if (sessionStorage.getItem('lp_kpa_unlocked') === 'true') return true;
+  if (window._roomAppState && window._roomAppState.lp_kpa_unlocked === true) return true;
+  return false;
+}
+
+function isActivitiesUnlocked() {
+  if (sessionStorage.getItem('lp_activities_unlocked') === 'true') return true;
+  if (window._roomAppState && window._roomAppState.lp_activities_unlocked === true) return true;
+  return false;
+}
+
+window.unlockKpaGateByPin = function() {
+  const pin = document.getElementById('gateKpaPinInput')?.value?.trim();
+  const errEl = document.getElementById('gateKpaError');
+  if (pin === '0000') {
+    sessionStorage.setItem('lp_kpa_unlocked', 'true');
+    if (errEl) errEl.classList.add('hidden');
+    if (typeof showToast === 'function') {
+      showToast('🔓 ปลดล็อกช่วง K-P-A เรียบร้อยแล้ว! ลุยเลย...', 'success');
+    }
+    goToWizardStep(4);
+  } else {
+    if (errEl) errEl.classList.remove('hidden');
+  }
+};
+
+window.unlockActivitiesGateByPin = function() {
+  const pin = document.getElementById('gateActivitiesPinInput')?.value?.trim();
+  const errEl = document.getElementById('gateActivitiesError');
+  if (pin === '0000') {
+    sessionStorage.setItem('lp_activities_unlocked', 'true');
+    if (errEl) errEl.classList.add('hidden');
+    if (typeof showToast === 'function') {
+      showToast('🔓 ปลดล็อกกิจกรรม นำ-สอน-สรุป เรียบร้อยแล้ว! ลุยเลย...', 'success');
+    }
+    goToWizardStep(7);
+  } else {
+    if (errEl) errEl.classList.remove('hidden');
+  }
+};
+
 /**
- * Go to Wizard Step (1 to 9, or 'checkpoint')
+ * Go to Wizard Step (1 to 9, 'checkpoint', 'gate_kpa', or 'gate_activities')
  */
 function goToWizardStep(step) {
+  // Gate 1 check: If routing to step 4 or above without unlock, divert to gate_kpa
+  if ((step === 'gate_kpa' || (typeof step === 'number' && step >= 4 && step <= 6)) && !isKpaUnlocked()) {
+    step = 'gate_kpa';
+  }
+  // Gate 2 check: If routing to step 7 or above without unlock, divert to gate_activities
+  if ((step === 'gate_activities' || (typeof step === 'number' && step >= 7 && step <= 9)) && !isActivitiesUnlocked()) {
+    step = 'gate_activities';
+  }
+
   const isCheckpoint = step === 'checkpoint';
-  if (!isCheckpoint && (step < 1 || step > 9)) return;
+  const isGateKpa = step === 'gate_kpa';
+  const isGateActivities = step === 'gate_activities';
+  const isSpecial = isCheckpoint || isGateKpa || isGateActivities;
+
+  if (!isSpecial && (step < 1 || step > 9)) return;
   appState.wizardStep = step;
-  window.location.hash = isCheckpoint ? '#checkpoint' : `#step${step}`;
+  window.location.hash = isSpecial ? `#${step}` : `#step${step}`;
 
   const checkpointPanel = document.getElementById('stepPanel-checkpoint');
+  const gateKpaPanel = document.getElementById('stepPanel-gate-kpa');
+  const gateActivitiesPanel = document.getElementById('stepPanel-gate-activities');
   const bottomNav = document.getElementById('wizardBottomNav');
 
   // Switch step panels
   for (let i = 1; i <= 9; i++) {
     const panel = document.getElementById(`stepPanel-${i}`);
     if (panel) {
-      if (!isCheckpoint && i === step) {
+      if (!isSpecial && i === step) {
         panel.classList.remove('hidden');
         panel.classList.add('animate-cute-pop');
       } else {
@@ -436,6 +515,60 @@ function goToWizardStep(step) {
       }
     }
   }
+
+  // Handle Gate 1 (KPA) Pause Screen
+  if (isGateKpa) {
+    if (checkpointPanel) checkpointPanel.classList.add('hidden');
+    if (gateActivitiesPanel) gateActivitiesPanel.classList.add('hidden');
+    if (gateKpaPanel) {
+      gateKpaPanel.classList.remove('hidden');
+      gateKpaPanel.classList.add('animate-cute-pop');
+    }
+    if (bottomNav) bottomNav.classList.add('hidden');
+
+    const counterEl = document.getElementById('wizardStepCounter');
+    const pctEl = document.getElementById('wizardStepPercentage');
+    const barEl = document.getElementById('wizardProgressBar');
+    const coachEl = document.getElementById('wizardCoachText');
+
+    if (counterEl) counterEl.innerText = `⏸️ พักฟังคำอธิบาย: เป้าหมายการเรียนรู้ (K-P-A)`;
+    if (pctEl) pctEl.innerText = `33%`;
+    if (barEl) barEl.style.width = `33%`;
+    if (coachEl) coachEl.innerText = 'ฟังคุณครูอธิบายหลักการตั้งเป้าหมาย K-P-A สักครู่ แล้วลุยต่อด้วยกันจ้า ✨';
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (window.lucide) window.lucide.createIcons();
+    return;
+  }
+
+  // Handle Gate 2 (Activities: นำ-สอน-สรุป) Pause Screen
+  if (isGateActivities) {
+    if (checkpointPanel) checkpointPanel.classList.add('hidden');
+    if (gateKpaPanel) gateKpaPanel.classList.add('hidden');
+    if (gateActivitiesPanel) {
+      gateActivitiesPanel.classList.remove('hidden');
+      gateActivitiesPanel.classList.add('animate-cute-pop');
+    }
+    if (bottomNav) bottomNav.classList.add('hidden');
+
+    const counterEl = document.getElementById('wizardStepCounter');
+    const pctEl = document.getElementById('wizardStepPercentage');
+    const barEl = document.getElementById('wizardProgressBar');
+    const coachEl = document.getElementById('wizardCoachText');
+
+    if (counterEl) counterEl.innerText = `⏸️ พักฟังคำอธิบาย: กิจกรรม Active Learning (นำ-สอน-สรุป)`;
+    if (pctEl) pctEl.innerText = `66%`;
+    if (barEl) barEl.style.width = `66%`;
+    if (coachEl) coachEl.innerText = 'ฟังคุณครูแนะนำเทคนิคขั้นจัดกิจกรรม 3 สเต็ป พร้อมเลือกสื่อโดนใจ สักครู่จ้า 🎪';
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (window.lucide) window.lucide.createIcons();
+    return;
+  }
+
+  // Hide gate panels if normal or checkpoint
+  if (gateKpaPanel) gateKpaPanel.classList.add('hidden');
+  if (gateActivitiesPanel) gateActivitiesPanel.classList.add('hidden');
 
   // Handle Checkpoint View (Intermission between Part 1 and Part 2)
   if (isCheckpoint) {
@@ -539,7 +672,11 @@ function goToWizardStep(step) {
 window.goToWizardStep = goToWizardStep;
 
 window.startPart2 = function() {
-  goToWizardStep(7);
+  if (!isActivitiesUnlocked()) {
+    goToWizardStep('gate_activities');
+  } else {
+    goToWizardStep(7);
+  }
 };
 
 /**
@@ -685,6 +822,12 @@ window.selectSubjectChoice = function(id) {
     showToast(`เลือก: วิชาอื่นๆ / ภาษาอื่นๆ 🌐`);
   } else {
     showToast(`เลือกวิชา: ${sub?.name || id} ✨`);
+    // Auto advance to Step 2 smoothly
+    setTimeout(() => {
+      if (appState.wizardStep === 1 && appState.formData.subject === id) {
+        goToWizardStep(2);
+      }
+    }, 380);
   }
 };
 
@@ -742,11 +885,25 @@ function renderStep2Grades() {
   }).join('');
 }
 
+window.handleStep3Next = function() {
+  if (!isKpaUnlocked()) {
+    goToWizardStep('gate_kpa');
+  } else {
+    goToWizardStep(4);
+  }
+};
+
 window.selectIndividualGrade = function(gradeId) {
   appState.formData.grade = gradeId;
   renderStep2Grades();
   const label = window.LESSON_PLAN_DATA.getGradeLabel(gradeId);
   showToast(`เลือกระดับชั้น: ${label.short} 🎒`);
+  // Auto advance to Step 3 (Teacher & Topic) smoothly
+  setTimeout(() => {
+    if (appState.wizardStep === 2 && appState.formData.grade === gradeId) {
+      goToWizardStep(3);
+    }
+  }, 380);
 };
 
 /**
@@ -1230,6 +1387,14 @@ function setupEventListeners() {
     btnPrev.addEventListener('click', () => {
       if (appState.wizardStep === 'checkpoint') {
         goToWizardStep(6);
+      } else if (appState.wizardStep === 'gate_kpa') {
+        goToWizardStep(3);
+      } else if (appState.wizardStep === 'gate_activities') {
+        goToWizardStep('checkpoint');
+      } else if (appState.wizardStep === 3) {
+        goToWizardStep(2);
+      } else if (appState.wizardStep === 4) {
+        goToWizardStep(3);
       } else if (appState.wizardStep === 7) {
         goToWizardStep('checkpoint');
       } else if (typeof appState.wizardStep === 'number' && appState.wizardStep > 1) {
@@ -1240,12 +1405,22 @@ function setupEventListeners() {
 
   if (btnNext) {
     btnNext.addEventListener('click', () => {
+      if (appState.wizardStep === 2) {
+        goToWizardStep(3);
+        return;
+      }
+      if (appState.wizardStep === 3) {
+        window.handleStep3Next();
+        return;
+      }
       if (appState.wizardStep === 6) {
         goToWizardStep('checkpoint');
-      } else if (typeof appState.wizardStep === 'number' && appState.wizardStep < 9) {
+        return;
+      }
+      if (typeof appState.wizardStep === 'number' && appState.wizardStep < 9) {
         goToWizardStep(appState.wizardStep + 1);
       } else if (appState.wizardStep === 9) {
-        submitWizardPlan();
+        submitWizardPlan(false);
       }
     });
   }
@@ -1273,7 +1448,7 @@ function setupEventListeners() {
 /**
  * Submit Plan: Save to LocalStorage & Show Overview Screen
  */
-function submitWizardPlan() {
+function submitWizardPlan(isDraftOnly = false) {
   const getVal = (id) => document.getElementById(id)?.value?.trim() || '';
 
   const teacher = getVal('step3TeacherNameInput');
@@ -1373,16 +1548,17 @@ function submitWizardPlan() {
 
   const isFromWorkshop = Boolean(window._fromWorkshop || window.recallPendingReturn || new URLSearchParams(window.location.search).get('from') === 'workshop');
 
+  const room = window._workshopRoomCode || (new URLSearchParams(window.location.search).get('room_code') || 'EDU69').toUpperCase();
+  const returnUrl = `./index.html?room=${encodeURIComponent(room)}&submitted=true`;
+  const returnBtn = document.getElementById('btnReturnToWorkshop');
+  if (returnBtn) {
+    returnBtn.href = returnUrl;
+  }
+
+  showView('overview');
   if (isFromWorkshop && !isDraftOnly) {
-    const room = window._workshopRoomCode || (new URLSearchParams(window.location.search).get('room_code') || 'EDU69').toUpperCase();
-    const returnUrl = `./index.html?room=${encodeURIComponent(room)}`;
-    showToast('ส่งแผนการสอนสมบูรณ์แบบเรียบร้อยแล้ว! 🚀 ยอดเยี่ยมมาก กำลังเด้งกลับสู่ห้องเรียนหลักอัตโนมัติ...', 'success');
-    showView('overview');
-    setTimeout(() => {
-      window.location.href = returnUrl;
-    }, 1800);
+    showToast('ส่งแผนการสอนสมบูรณ์แบบเรียบร้อยแล้ว! 🚀 คลิก "กลับสู่ห้องเรียนหลัก" ได้เลยครับ', 'success');
   } else {
-    showView('overview');
     showToast('สร้างแผนการสอนสำเร็จแล้ว! ชม Overview ได้เลย 🎉', 'success');
   }
 }
